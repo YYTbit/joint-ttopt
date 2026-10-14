@@ -1,0 +1,8 @@
+cff-version: 1.2.0
+message: "Please cite the accompanying paper when using this code."
+title: "Joint Test-Time Optimization from Multi-Agent Interaction of Large Language Models"
+authors:
+  - name: Anonymous
+version: 1.0.0
+date-released: 2026-10-14
+license: MIT

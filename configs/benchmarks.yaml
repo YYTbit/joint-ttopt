@@ -1,0 +1,26 @@
+MultiAgentBench:
+  tasks: [Research, Minecraft, Database, Coding, Werewolf, Bargaining]
+  native_metric: task_kpi
+  unit: percent
+  participants: task_defined
+GAMA-Bench:
+  tasks: [Public Goods, El Farol Bar, Divide the Dollar, Guess Two-Thirds, Diner's Dilemma, Pirate, Sealed-Bid Auction, Battle Royale]
+  native_metric: payoff
+  unit: unit_interval
+  participants: 10
+SOTOPIA:
+  tasks: [Negotiation, Persuasion, Conflict Resolution, Collaborative Planning]
+  native_metric: goal_achievement
+  unit: zero_to_ten
+  participants: 2
+Decrypto:
+  tasks: [Cooperative Play, Competitive Interception, Theory of Mind 1, Theory of Mind 2]
+  native_metric: success
+  unit: percent
+  participants: 3
+AvalonBench:
+  tasks: [Five-player Avalon]
+  configurations: [Role-agnostic, Merlin, Assassin, Servant]
+  native_metric: win_rate
+  unit: percent
+  participants: 5

@@ -1,0 +1,32 @@
+{
+  "MultiAgentBench": {
+    "repository": "https://github.com/ulab-uiuc/MARBLE",
+    "revision": "8d60fa17b5596b44458a52d4296061b9fc13d6f2",
+    "directory": "MARBLE"
+  },
+  "GAMA-Bench": {
+    "repository": "https://github.com/CUHK-ARISE/GAMABench",
+    "revision": "ca933aedcc55b29032c3fd37cf7f695abd2197cd",
+    "directory": "GAMABench"
+  },
+  "SOTOPIA": {
+    "repository": "https://github.com/sotopia-lab/sotopia",
+    "revision": "a0aaafb440e570e5e61b7c44a44e5e417c545383",
+    "directory": "sotopia"
+  },
+  "Decrypto": {
+    "repository": "https://github.com/facebookresearch/decrypto",
+    "revision": "d79f6c266e50be6ff077cf91be030c1e3828a330",
+    "directory": "decrypto"
+  },
+  "AvalonBench": {
+    "repository": "https://github.com/jonathanmli/Avalon-LLM",
+    "revision": "2439c6b50df7b45bae4cfcaa67e1d973e4dd8fa5",
+    "directory": "AvalonBench"
+  },
+  "TEMPO": {
+    "repository": "https://github.com/QingyangZhang/TEMPO",
+    "revision": "dbf313c3797c50d6f08519691ef438581bd36533",
+    "directory": "TEMPO"
+  }
+}

@@ -1,0 +1,18 @@
+coarse:
+  persistent_joint: {method: joint}
+  equal_share: {method: equal_share}
+  rank_matched_lora: {method: rank_matched}
+  reset_parameters: {method: reset}
+  shared_feedback: {method: shared_feedback}
+fine:
+  tight_agent_caps: {agent_cap_multiplier: 1.0}
+  default_agent_caps: {agent_cap_multiplier: 3.0}
+  unrestricted_agent_caps: {agent_cap_multiplier: 10.0}
+  allocation_every_two: {allocation_interval: 2}
+  allocation_every_five: {allocation_interval: 5}
+  history_one: {history_turns: 1}
+  history_eight: {history_turns: 8}
+  replicated_two: {trajectories_per_update: 2}
+  half_rank: {rank_multiplier: 0.5}
+  reference_rank: {rank_multiplier: 1.0}
+  double_rank: {rank_multiplier: 2.0}

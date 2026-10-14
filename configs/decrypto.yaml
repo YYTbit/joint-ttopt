@@ -1,0 +1,9 @@
+factory: joint_ttopt.native:DecryptoEnvironment
+task_id: decrypto_competitive_interception_deployment
+partner_schedule_id: decrypto_joint_paired_deployment
+options:
+  source: external/decrypto
+  expected_revision: d79f6c266e50be6ff077cf91be030c1e3828a330
+  clue_catalog: data/decrypto/clue_catalog.json
+  max_turns: 8
+  condition: competitive_interception
