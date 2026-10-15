@@ -65,6 +65,7 @@ class FactorMatrix:
     def proposal(self, gradient, step):
         if self.shape != gradient.shape or not np.isfinite(step) or step <= 0:
             raise ValueError("Invalid proposal shape or step")
+        # Splitting sqrt(step) across both factors adds step times the gradient product.
         root = np.sqrt(step)
         return FactorMatrix(np.concatenate((self.left, root * gradient.left), axis=1),
                             np.concatenate((self.right, root * gradient.right), axis=0))
@@ -96,6 +97,7 @@ class FactorMatrix:
         if self.width == 0:
             return Spectrum(np.empty((self.shape[0], 0)), np.empty(0),
                             np.empty((0, self.shape[1])))
+        # QR reduces the product SVD to a small core without materializing the dense matrix.
         left_basis, left_core = np.linalg.qr(self.left, mode="reduced")
         right_basis, right_core = np.linalg.qr(self.right.T, mode="reduced")
         left, values, right = np.linalg.svd(left_core @ right_core.T, full_matrices=False)

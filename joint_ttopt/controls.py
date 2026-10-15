@@ -57,6 +57,7 @@ def factor_update(coordinator, batch, calibration, ranks, seed=0):
                 if state.width != rank:
                     raise ValueError("Persistent factor capacity changed during the matched control")
                 left, right = state.left, state.right
+            # Contracting with the opposite factor gives each factor's chain-rule gradient.
             left_gradient = gradient.left @ (gradient.right @ right.T)
             right_gradient = (left.T @ gradient.left) @ gradient.right
             states[key] = FactorMatrix(left + steps[key[0]] * left_gradient,

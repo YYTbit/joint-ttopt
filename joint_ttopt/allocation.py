@@ -22,6 +22,7 @@ def allocate(spectra, total_rank, agent_caps, steps):
     for (agent, block), spectrum in spectra.items():
         for index, singular in enumerate(spectrum.values):
             if singular > 0:
+                # This contribution ranks each mode under the quadratic proximal objective.
                 value = float(singular ** 2 / (2 * steps[agent]))
                 if not np.isfinite(value):
                     raise ValueError("A spectral mode value is nonfinite")
@@ -33,6 +34,7 @@ def allocate(spectra, total_rank, agent_caps, steps):
     excluded = []
     for negative_value, agent, block, index in modes:
         if len(selected) < total_rank and used[agent] < agent_caps[agent]:
+            # A block retains leading singular modes, so selected indices must form a prefix.
             if index != ranks[(agent, block)]:
                 raise ValueError("Selected singular modes do not form a prefix")
             ranks[(agent, block)] += 1

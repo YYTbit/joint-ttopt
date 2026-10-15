@@ -46,6 +46,7 @@ def gradient_radius(sample_bound, sample_count, failure_probability,
     if sample_count > 1:
         radius = min(radius, sample_bound / np.sqrt(sample_count)
                      * (1 + np.sqrt(2 * np.log(1 / failure_probability))))
+    # Use the tightest available radius from bounded-range and second-moment bounds.
     if second_moment_bound is not None:
         if not np.isfinite(second_moment_bound) or second_moment_bound < 0:
             raise ValueError("Second-moment bound is finite and nonnegative")

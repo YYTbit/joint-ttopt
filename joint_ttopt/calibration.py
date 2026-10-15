@@ -49,6 +49,7 @@ def joint_secant(current_states, preceding_states, current_gradients,
 def select_step(calibration, secant, margin=0.10):
     if not np.isfinite([secant, margin]).all() or secant < 0 or not 0 < margin < 1:
         raise ValueError("Invalid joint secant or step margin")
+    # The step leaves a fixed margin below the calibrated local gradient-change bound.
     scale = max(calibration.local_scale, secant + calibration.secant_tolerance)
     step = (1 - margin) / scale
     penalty = 1 / step - scale

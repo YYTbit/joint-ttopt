@@ -106,6 +106,7 @@ class Coordinator:
             proximal = sum(batch.gradients[key].inner(changes[key])
                            - changes[key].norm_squared() / (2 * steps[key[0]])
                            for key in self.states)
+            # Split the remaining failure probability across agents for the joint confidence bound.
             agent_level = (self.error_budget - calibration.failure_probability) / len(self.agent_caps)
             levels = dict.fromkeys(self.agent_caps, agent_level)
             radii = {agent: gradient_radius(calibration.sample_bounds[agent], batch.sample_count,
