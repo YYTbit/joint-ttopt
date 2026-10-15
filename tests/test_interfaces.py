@@ -6,14 +6,14 @@ import numpy as np
 import pytest
 import torch
 
-from joint_ttopt.calibration import Calibration
+from joint_ttopt.calibration import Calibration, paired_second_moment
 from joint_ttopt.confidence import RewardScale
 from joint_ttopt.controls import factor_update, fixed_ranks
 from joint_ttopt.deployment import run_deployment
 from joint_ttopt.environments import Frame, serve
 from joint_ttopt.factors import FactorMatrix
 from joint_ttopt.optimizer import Coordinator, GradientBatch
-from joint_ttopt.probes import record_probes, unit_direction
+from joint_ttopt.probes import load_probe_calibration, record_probes, unit_direction
 from joint_ttopt.renderer import ObservationRenderer
 from joint_ttopt.statistics import (aggregate_games, apply_anchors, build_anchors, deployment_metrics,
                                    normalized_gain, paired_bootstrap)
@@ -165,6 +165,89 @@ def test_paired_probe_recordings_have_unit_native_norm_and_distinct_repeated_see
     assert len(manifest["probes"]) == 4
     assert len(manifest["secant_residuals"]) == 2
     assert all(probe["direction_norm"] == pytest.approx(1.0) for probe in manifest["probes"])
+    assert manifest["work"]["joint_episodes"] == 8
+    assert manifest["work"]["gradient_backward_calls"] == 8
+    assert manifest["moment_pairs"] == 2
+    assert manifest["moment_rule"] == "supplement_equation_19"
+    assert set(manifest["second_moments"]) == {0}
+
+
+def test_incumbent_calibration_restores_policy_and_uses_completed_transition(tmp_path):
+    policy = PolicyFixture()
+    states = {(0, "a"): FactorMatrix.from_dense(np.array([[2.0]]))}
+    preceding = {(0, "a"): FactorMatrix.from_dense(np.array([[1.0]]))}
+    policy.set_states(states, 3)
+    rng = policy.generator.get_state().clone()
+    settings = {"probe_directions": 2, "failure_probability": 0.02, "norm_threshold": 1e-9}
+    manifest = record_probes(EnvironmentFixture(), policy, {0: RewardScale(0, 1)}, settings,
+                             {"sample_bounds": {"0": 10}, "reference_scale": 1,
+                              "validity_record": "software_fixture"}, tmp_path, 2, states, 3,
+                             preceding_states=preceding)
+    assert policy.version == 3
+    np.testing.assert_allclose(policy.states[(0, "a")].dense(), [[2]])
+    assert torch.equal(rng, policy.generator.get_state())
+    assert manifest["available_version"] == 3
+    assert len(manifest["transition_probes"]) == 4
+    assert manifest["work"]["joint_episodes"] == 16
+    assert manifest["secant_residuals"] == pytest.approx([0, 0])
+    calibration = load_probe_calibration(tmp_path / "manifest.json")
+    assert calibration.failure_probability == 0.02
+    assert calibration.norm_threshold == 1e-9
+
+
+def test_refresh_schedule_and_work_survive_resume(tmp_path):
+    config = {"episodes": 2, "total_rank": 1, "task_id": "fixture",
+              "calibration": {"refresh_interval": 1, "probe_directions": 1}}
+    calibration = Calibration(1.0, 0, {0: 10.0})
+    output = tmp_path / "run"
+    records = run_deployment(EnvironmentFixture(), PolicyFixture(), calibration, "fixture",
+                             {0: RewardScale(0, 1)}, config, output, seed=3)
+    assert [row["calibration_version"] for row in records] == [0, 1]
+    assert records[0]["calibration_work"]["joint_episodes"] == 4
+    assert records[1]["calibration_work"]["joint_episodes"] == 8
+    assert records[0]["work"]["action_forward_calls"] == 1
+    _, extra = load_checkpoint(output / "state.npz")
+    assert extra["calibration"]["available_version"] == 1
+    assert run_deployment(EnvironmentFixture(), PolicyFixture(), calibration, "fixture", {0: RewardScale(0, 1)},
+                          config, output, seed=3, checkpoint=output / "state.npz") == []
+    other = run_deployment(EnvironmentFixture(), PolicyFixture(), calibration, "fixture", {0: RewardScale(0, 1)},
+                            dict(config, calibration={"refresh_interval": 0}), tmp_path / "other", seed=4)
+    assert set(row["native_seed"] for row in records).isdisjoint(row["native_seed"] for row in other)
+
+
+def test_paired_second_moment_matches_equation_19():
+    differences, bound, scale, failure = [1.0, 4.0, 9.0], 5.0, 3.0, 0.01
+    mean, logarithm = np.mean(differences), np.log(2 / failure)
+    expected = mean + bound * np.sqrt(2 * mean * logarithm / 3) + 7 * scale ** 2 * logarithm / 6
+    assert paired_second_moment(differences, bound, scale, failure) == pytest.approx(expected)
+    with pytest.raises(ValueError):
+        paired_second_moment([1], bound, scale)
+
+
+@pytest.mark.parametrize("interrupted_version", [0, 1])
+def test_incomplete_probe_directory_can_resume_without_losing_artifacts(monkeypatch, tmp_path, interrupted_version):
+    from joint_ttopt import probes
+    original = probes.record_probes
+    def interrupted(*args, **kwargs):
+        if args[8] == interrupted_version:
+            directory = args[5]
+            directory.mkdir(parents=True, exist_ok=True)
+            (directory / "partial.json").write_text('{}\n')
+            raise RuntimeError("software fixture interruption")
+        return original(*args, **kwargs)
+    config = {"episodes": 2, "total_rank": 1, "task_id": "fixture",
+              "calibration": {"refresh_interval": 1, "probe_directions": 2}}
+    calibration = Calibration(1.0, 0, {0: 10.0})
+    output = tmp_path / "run"
+    monkeypatch.setattr(probes, "record_probes", interrupted)
+    with pytest.raises(RuntimeError, match="fixture interruption"):
+        run_deployment(EnvironmentFixture(), PolicyFixture(), calibration, "fixture",
+                        {0: RewardScale(0, 1)}, config, output)
+    monkeypatch.setattr(probes, "record_probes", original)
+    result = run_deployment(EnvironmentFixture(), PolicyFixture(), calibration, "fixture", {0: RewardScale(0, 1)},
+                             config, output, checkpoint=output / "state.npz")
+    assert len(result) == 2 - interrupted_version and result[-1]["episode"] == 2
+    assert (output / f"calibration/version_{interrupted_version:05d}.incomplete_0/partial.json").is_file()
 
 
 def test_normalization_anchors_are_shared_across_horizons_and_equal_weight_aggregation():

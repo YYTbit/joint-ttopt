@@ -56,9 +56,22 @@ def select_step(calibration, secant, margin=0.10):
     return float(step), float(penalty), float(scale)
 
 
+def paired_second_moment(squared_differences, sample_bound, difference_scale, failure_probability=0.01):
+    values = np.asarray(squared_differences, dtype=float)
+    if (values.ndim != 1 or len(values) < 2 or not np.isfinite(values).all() or np.any(values < 0)
+            or not np.isfinite([sample_bound, difference_scale]).all()
+            or sample_bound < 0 or difference_scale < 0 or not 0 < failure_probability < 1):
+        raise ValueError("Paired calibration moments require finite bounds and at least two probe pairs")
+    mean, count = float(values.mean()), len(values)
+    logarithm = np.log(2 / failure_probability)
+    return float(mean + sample_bound * np.sqrt(2 * mean * logarithm / count)
+                 + 7 * difference_scale ** 2 * logarithm / (3 * (count - 1)))
+
+
 def calibration_from_probes(probes, residuals, sample_bounds, reference_scale,
                             second_moments=None, quantile=0.90, floor_fraction=0.05,
-                            available_version=0, provenance=None):
+                            available_version=0, provenance=None, norm_threshold=1e-12,
+                            failure_probability=0.01):
     if not probes or not np.isfinite(reference_scale) or reference_scale <= 0:
         raise ValueError("Calibration requires paired probes and a positive reference scale")
     if not 0 <= quantile <= 1 or not 0 < floor_fraction <= 1:
@@ -74,6 +87,7 @@ def calibration_from_probes(probes, residuals, sample_bounds, reference_scale,
     return Calibration(max(floor_fraction * reference_scale, max(values)),
                        float(np.quantile(np.abs(residuals), quantile)),
                        dict(sample_bounds), dict(second_moments or {}), available_version,
+                       norm_threshold=norm_threshold, failure_probability=failure_probability,
                        provenance=dict(provenance or {}, probe_count=len(probes),
                                        probe_radii=[float(item[0]) for item in probes],
                                        residual_count=len(residuals), residual_quantile=quantile,

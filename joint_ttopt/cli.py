@@ -9,7 +9,6 @@ from pathlib import Path
 
 import yaml
 
-from .calibration import calibration_from_probes
 from .confidence import RewardScale
 from .optimizer import Coordinator, GradientBatch
 from .storage import (file_digest, json_value, load_calibration, load_checkpoint,
@@ -51,26 +50,8 @@ def update_command(args):
 
 
 def calibrate_command(args):
-    path = Path(args.manifest)
-    manifest = json.loads(path.read_text())
-    probes = []
-    for item in manifest["probes"]:
-        if abs(float(item["direction_norm"]) - 1) > 1e-8:
-            raise ValueError("Calibration probe direction has unit product norm")
-        positive, positive_record = load_factors(path.parent / item["positive"])
-        negative, negative_record = load_factors(path.parent / item["negative"])
-        if positive_record.get("paired_seed") != negative_record.get("paired_seed"):
-            raise ValueError("Calibration probe trajectories use matching paired seeds")
-        if positive_record.get("policy_version") != manifest["available_version"] or negative_record.get("policy_version") != manifest["available_version"]:
-            raise ValueError("Calibration probe snapshots have different policy versions")
-        probes.append((float(item["radius"]), positive, negative))
-    result = calibration_from_probes(probes, manifest["secant_residuals"],
-                                     {int(agent): bound for agent, bound in manifest["sample_bounds"].items()},
-                                     manifest["reference_scale"],
-                                     {int(agent): bound for agent, bound in manifest.get("second_moments", {}).items()},
-                                     available_version=int(manifest["available_version"]),
-                                     provenance={"probe_manifest_sha256": file_digest(path),
-                                                 "validity_record": manifest["validity_record"]})
+    from .probes import load_probe_calibration
+    result = load_probe_calibration(args.manifest, read_config(args.config).get("calibration", {}))
     write_json(args.output, asdict(result))
     print(json.dumps(json_value(asdict(result)), indent=2))
 
@@ -121,10 +102,13 @@ def deploy_command(args):
         scales = {int(agent): RewardScale.from_interval(value["lower"], value["upper"], value.get("fallback_span"))
                   for agent, value in normalization["agents"].items()}
         settings = dict(config["optimization"], **config["deployment"],
+                        calibration=config["calibration"],
                         task_id=environment_config["task_id"], benchmark=environment.name,
                         partner_schedule_id=environment_config["partner_schedule_id"],
                         environment_configuration_sha256=file_digest(args.environment),
                         normalization_sha256=file_digest(args.normalization))
+        if args.calibration_bounds:
+            settings["calibration_bounds"] = json.loads(Path(args.calibration_bounds).read_text())
         if args.variant:
             variants = read_config(args.ablations)
             entries = dict(variants["coarse"], **variants["fine"])
@@ -197,6 +181,7 @@ def main(argv=None):
     update.set_defaults(function=update_command)
     calibration = commands.add_parser("calibrate")
     calibration.add_argument("--manifest", required=True)
+    calibration.add_argument("--config", default="configs/paper.yaml")
     calibration.add_argument("--output", required=True)
     calibration.set_defaults(function=calibrate_command)
     probes = commands.add_parser("record-probes")
@@ -216,6 +201,7 @@ def main(argv=None):
     deployment.add_argument("--model", choices=["Qwen3-8B", "Llama-3.1-8B", "gpt-oss-20b"], required=True)
     deployment.add_argument("--head", required=True)
     deployment.add_argument("--calibration", required=True)
+    deployment.add_argument("--calibration-bounds")
     deployment.add_argument("--normalization", required=True)
     deployment.add_argument("--method", choices=["joint", "frozen", "equal_share", "rank_matched", "reset", "shared_feedback"], default="joint")
     deployment.add_argument("--seed", type=int, default=0)
@@ -305,5 +291,42 @@ def main(argv=None):
                           json.loads(Path(args.renderer).read_text()), args.seed,
                           args.epochs, args.learning_rate, args.device)
     head.set_defaults(function=head_command)
+    entry = commands.add_parser("collect-entry")
+    entry.add_argument("--environment", required=True)
+    entry.add_argument("--checkpoint", required=True)
+    entry.add_argument("--revision")
+    entry.add_argument("--renderer", required=True)
+    entry.add_argument("--episodes", type=int, default=100)
+    entry.add_argument("--seed", type=int, default=0)
+    entry.add_argument("--fallback-spans", required=True)
+    entry.add_argument("--device-map", default="auto")
+    entry.add_argument("--output", required=True)
+    def entry_command(args):
+        from transformers import AutoTokenizer
+        from .environments import load_environment
+        from .preparation import GenerativeActionTeacher, collect_entry
+        from .renderer import ObservationRenderer
+        specification = read_config(args.environment)
+        if specification.get("split") != "entry_training" or args.episodes < 1:
+            raise ValueError("Collection requires an entry-training task and a positive episode count")
+        tokenizer = AutoTokenizer.from_pretrained(args.checkpoint, revision=args.revision)
+        renderer = ObservationRenderer(tokenizer, **json.loads(Path(args.renderer).read_text()))
+        teacher = GenerativeActionTeacher(args.checkpoint, args.revision, args.device_map)
+        environment = load_environment(specification["factory"], specification.get("options", {}))
+        try:
+            labels, episodes = collect_entry(environment, teacher, renderer, specification, args.output,
+                                              list(range(args.seed, args.seed + args.episodes)),
+                                              fallback_spans=json.loads(Path(args.fallback_spans).read_text()))
+            print(json.dumps({"episodes": len(episodes), "labels": len(labels)}))
+        finally:
+            environment.close()
+    entry.set_defaults(function=entry_command)
+    envelopes = commands.add_parser("prepare-envelopes")
+    envelopes.add_argument("--specification", required=True)
+    envelopes.add_argument("--output", required=True)
+    def envelopes_command(args):
+        from .preparation import declared_envelopes
+        write_json(args.output, declared_envelopes(json.loads(Path(args.specification).read_text())))
+    envelopes.set_defaults(function=envelopes_command)
     args = parser.parse_args(argv)
     args.function(args)

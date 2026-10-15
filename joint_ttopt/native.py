@@ -21,19 +21,22 @@ def source_revision(source, expected=None):
 
 class AvalonEnvironment:
     def __init__(self, source="external/AvalonBench", expected_revision=None,
-                 players=5, focal_player=0, merlin=True):
+                 players=5, focal_player=0, merlin=True, focal_role=None):
         source = Path(source)
         self.version = source_revision(source, expected_revision)
         if players != 5 or not 0 <= focal_player < players:
             raise ValueError("The paper's Avalon interface uses five players and a valid focal player")
         sys.path.insert(0, str(source.resolve()))
-        module = importlib.import_module("avalonbench_dev.avalon.engine")
+        module = importlib.import_module("strategist.Avalon.engine")
         self.configuration = module.AvalonBasicConfig.from_num_players(players, merlin=merlin)
         with contextlib.redirect_stdout(sys.stderr):
             self.engine = module.AvalonGameEnvironment(self.configuration)
         self.agents = tuple(range(players))
         self.name = "AvalonBench"
         self.focal = focal_player
+        if focal_role not in (None, "Merlin", "Assassin", "Servant"):
+            raise ValueError("The focal Avalon role is Merlin, Assassin, Servant, or role-agnostic")
+        self.focal_role = focal_role
         self.teams = list(itertools.combinations(self.agents, 2)) + list(itertools.combinations(self.agents, 3))
         self.team_catalog = {index: frozenset(team) for index, team in enumerate(self.teams)}
         self.vote_approve, self.vote_reject = 20, 21
@@ -47,6 +50,13 @@ class AvalonEnvironment:
         np.random.seed(seed)
         with contextlib.redirect_stdout(sys.stderr):
             self.engine.reset()
+        if self.focal_role is not None:
+            candidates = [agent for agent in self.agents if self.engine.get_role(agent)[1] == self.focal_role]
+            if not candidates:
+                raise ValueError("The configured Avalon game omits the requested focal role")
+            target = int(np.random.choice(candidates))
+            self.engine.roles[[self.focal, target]] = self.engine.roles[[target, self.focal]]
+            self.engine.is_good[[self.focal, target]] = self.engine.is_good[[target, self.focal]]
         self.history = []
         return self.frame()
 
@@ -55,7 +65,8 @@ class AvalonEnvironment:
         if game.done:
             outcomes = {agent: float(bool(game.is_good[agent]) == bool(game.good_victory)) for agent in self.agents}
             return Frame({}, {}, outcomes, True, self.task, {}, {},
-                         {"win_rate": 100 * outcomes[self.focal]})
+                         {"win_rate": 100 * outcomes[self.focal],
+                          "focal_role": self.engine.get_role(self.focal)[1]})
         phase = int(game.phase)
         if phase == 0:
             actors = [int(game.quest_leader)]

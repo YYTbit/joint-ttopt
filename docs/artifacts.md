@@ -4,12 +4,16 @@
 
 Deployment uses an action-head checkpoint, entry normalization, calibration records, and a benchmark environment configuration. Download model and benchmark dependencies separately. `configs/sources.json` pins benchmark source revisions.
 
-The action-head NPZ contains `weight`, optional `bias`, and JSON `metadata`. Use `train-head` with JSONL entry-training episodes containing `split`, `input_ids`, `legal_actions`, `action`, `task_id`, and `partner_schedule_id`. The split label is `entry_training`.
+The action-head NPZ contains `weight`, optional `bias`, and JSON `metadata`. `collect-entry` generates labels from complete native training episodes using the base model's legal-action selections. Its environment configuration declares `split: entry_training`, a training task identifier, and a training partner-schedule identifier. Deployment tasks, schedules, and seeds use separate identifiers. The collector also writes the entry return normalization. `train-head` then fits the frozen action head from these labels.
 
 ```bash
+python -m joint_ttopt collect-entry \
+  --environment data/entry_environment.yaml --checkpoint Qwen/Qwen3-8B \
+  --renderer data/renderer.json --fallback-spans data/benchmark_return_spans.json \
+  --output data/entry
 python -m joint_ttopt train-head \
   --checkpoint Qwen/Qwen3-8B --revision COMMIT \
-  --training-data data/entry_training.jsonl \
+  --training-data data/entry/action_labels.jsonl \
   --renderer data/renderer.json --output checkpoints/action_head.npz
 ```
 
@@ -17,7 +21,7 @@ Renderer settings define `discrete_tokens`, `numerical_ranges`, `bins`, `history
 
 ## Calibration
 
-The bounds input contains `sample_bounds`, optional `second_moments`, `reference_scale`, and `validity_record`. Bounds are supplied before deployment sampling.
+The bounds input contains `sample_bounds`, optional `second_moments`, `reference_scale`, and `validity_record`. `prepare-envelopes` computes trajectory norm envelopes from declared advantage, per-block score, state, horizon, and utility-span bounds. Probe pairs supply the squared gradient differences and recorded difference scale used in supplementary Equation (19). The moment scale enters the conditional confidence calculation; its calibration-validity condition is retained in the record. Bounds are supplied before deployment sampling.
 
 ```bash
 python -m joint_ttopt record-probes \
@@ -27,6 +31,8 @@ python -m joint_ttopt record-probes \
 python -m joint_ttopt calibrate \
   --manifest calibration/probes/manifest.json --output calibration/reference.json
 ```
+
+The paper configuration refreshes calibration at each update round. Probes use the incumbent fast weights and a frozen history-baseline snapshot; paired seeds are reused across the two states. Completed transitions provide the repeated secant residuals after the entry round. Probe recording restores the policy and action-sampling random state. `calibration.refresh_interval: 0` reuses the supplied record. Every episode records action forwards, gradient replay forwards and backwards, calibration trajectories, and elapsed stage times; these counts come from executed trajectories.
 
 Existing gradient records can be processed with `update`. NPZ inputs use the archive format implemented in `joint_ttopt.storage`.
 

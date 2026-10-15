@@ -11,7 +11,7 @@ requires-python = ">=3.10"
 dependencies = ["numpy>=1.26,<3", "scipy>=1.11,<2", "PyYAML>=6,<7"]
 
 [project.optional-dependencies]
-models = ["torch>=2.6,<3", "transformers==4.57.3", "accelerate>=1.5,<2", "safetensors>=0.4"]
+models = ["torch>=2.6,<3", "transformers==4.57.3", "accelerate>=1.5,<2", "safetensors>=0.4", "pydantic>=2,<3"]
 recovery = ["cvxpy>=1.5,<2", "clarabel>=0.9"]
 test = ["pytest>=8,<9"]
 

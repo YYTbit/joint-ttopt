@@ -15,6 +15,7 @@ deployment:
   max_episode_steps: 4096
   record_trajectories: true
 calibration:
+  refresh_interval: 1
   probe_directions: 32
   radius: 0.01
   residual_quantile: 0.90

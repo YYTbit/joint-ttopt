@@ -1,0 +1,10 @@
+factory: joint_ttopt.native:AvalonEnvironment
+task_id: avalon_assassin_deployment
+partner_schedule_id: avalon_joint_paired_deployment
+options:
+  source: external/AvalonBench
+  expected_revision: 2439c6b50df7b45bae4cfcaa67e1d973e4dd8fa5
+  players: 5
+  focal_player: 0
+  merlin: true
+  focal_role: Assassin
