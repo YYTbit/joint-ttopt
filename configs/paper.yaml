@@ -32,7 +32,7 @@ models:
     adapted_blocks: 72
     reference_rank: 576
   Llama-3.1-8B:
-    checkpoint: meta-llama/Llama-3.1-8B
+    checkpoint: meta-llama/Llama-3.1-8B-Instruct
     revision: null
     adapted_blocks: 64
     reference_rank: 512
