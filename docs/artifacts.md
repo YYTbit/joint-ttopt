@@ -42,4 +42,4 @@ Avalon uses the released engine. Decrypto requires a clue catalog mapping action
 
 A frame provides local observations, legal actions, rewards, termination status, task rules, private roles, visible histories, and native metrics. Evaluation forwards actions to the corresponding benchmark role and uses its released scoring rules.
 
-Use `--resume results/joint/state.npz` with the original run configuration to restore a checkpoint. `metrics`, `normalize`, and `summarize` process measured run outputs. Runtime checkpoints, datasets, and results remain outside version control.
+Use `--resume results/joint/state.npz` with the original run configuration to restore a checkpoint. `metrics`, `normalize`, and `summarize` process measured run outputs.
