@@ -17,6 +17,17 @@ class FactorMatrix:
             raise ValueError("Matrix dimensions are positive")
         if not np.isfinite(left).all() or not np.isfinite(right).all():
             raise ValueError("Matrix factors contain nonfinite entries")
+        # Exact QR refactorization bounds storage as token-gradient factors accumulate.
+        # Every direction is retained; rank allocation remains in the proposal SVD.
+        if left.shape[1] > min(left.shape[0], right.shape[1]):
+            if left.shape[0] <= right.shape[1]:
+                left, core = np.linalg.qr(left, mode="reduced")
+                right = core @ right
+            else:
+                basis, core = np.linalg.qr(right.T, mode="reduced")
+                left, right = left @ core.T, basis.T
+            if not np.isfinite(left).all() or not np.isfinite(right).all():
+                raise ValueError("QR refactorization produced nonfinite factors")
         left.setflags(write=False)
         right.setflags(write=False)
         object.__setattr__(self, "left", left)

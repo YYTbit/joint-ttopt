@@ -7,6 +7,26 @@ from joint_ttopt.allocation import allocate, project
 from joint_ttopt.factors import FactorMatrix, Spectrum, field_difference, joint_norm
 
 
+@pytest.mark.parametrize("shape", [(3, 5), (5, 3), (4, 4)])
+def test_overcomplete_trajectory_factors_preserve_full_products(shape):
+    random = np.random.default_rng(29)
+    rows, columns = shape
+    left = random.normal(size=(rows, 37))
+    right = random.normal(size=(37, columns))
+    dense = left @ right
+    matrix = FactorMatrix(left, right)
+    assert matrix.width <= min(shape)
+    np.testing.assert_allclose(matrix.dense(), dense, atol=1e-12)
+    assert matrix.norm_squared() == pytest.approx(np.sum(dense ** 2), rel=1e-12)
+    accumulated = FactorMatrix.zeros(*shape)
+    for _ in range(16):
+        accumulated = accumulated.plus(matrix, 0.125)
+    assert accumulated.width <= min(shape)
+    np.testing.assert_allclose(accumulated.dense(), 2 * dense, atol=1e-11)
+    assert matrix.inner(accumulated) == pytest.approx(2 * np.sum(dense ** 2), rel=1e-12)
+    np.testing.assert_allclose(matrix.spectrum().values, np.linalg.svd(dense, compute_uv=False), atol=1e-11)
+
+
 def test_complete_factor_proposal_matches_dense_svd():
     random = np.random.default_rng(17)
     state = FactorMatrix(random.normal(size=(7, 2)), random.normal(size=(2, 5)))
@@ -18,7 +38,7 @@ def test_complete_factor_proposal_matches_dense_svd():
     np.testing.assert_allclose(spectrum.values, np.linalg.svd(dense, compute_uv=False), atol=1e-12)
     left, values, right = np.linalg.svd(dense, full_matrices=False)
     np.testing.assert_allclose(spectrum.truncate(3).dense(), (left[:, :3] * values[:3]) @ right[:3], atol=1e-11)
-    assert proposal.width == 11
+    assert proposal.width <= min(proposal.shape)
 
 
 def test_global_greedy_equals_exhaustive_rank_allocation():
