@@ -46,9 +46,10 @@ files using the [preparation guide](docs/artifacts.md). The guide includes the
 collection and calibration commands. Model and optimizer settings are in
 [configs/paper.yaml](configs/paper.yaml).
 
-## Deployment
+## Usage
 
-Run joint adaptation on Avalon:
+Environment settings are provided for [Avalon](configs/avalon.yaml) and
+[Decrypto](configs/decrypto.yaml). The following example uses Avalon:
 
 ```bash
 python -m joint_ttopt deploy --environment configs/avalon.yaml \
@@ -57,8 +58,6 @@ python -m joint_ttopt deploy --environment configs/avalon.yaml \
   --calibration calibration/reference.json \
   --calibration-bounds data/gradient_bounds.json --output results/joint
 ```
-
-To continue a saved run, add `--resume results/joint/state.npz` to the same command.
 
 ## Evaluation
 
