@@ -41,6 +41,9 @@ Download the benchmark sources and install the selected environment's dependenci
 python -m joint_ttopt fetch --output external
 ```
 
+The paper evaluates MultiAgentBench, GAMA-Bench, SOTOPIA, Decrypto, and AvalonBench.
+Their upstream sources are listed in [configs/sources.json](configs/sources.json).
+
 Before deployment, prepare the action head, reward normalization, and calibration
 files using the [preparation guide](docs/artifacts.md). The guide includes the
 collection and calibration commands. Model and optimizer settings are in
