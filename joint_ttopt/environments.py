@@ -31,15 +31,19 @@ class Frame:
 
 
 class JsonEnvironment:
-    def __init__(self, command, timeout=300.0):
+    def __init__(self, command, timeout=300.0, env=None):
         if not command or timeout <= 0:
             raise ValueError("Environment command and timeout are required")
         self.process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                        text=True, bufsize=1)
+                                        text=True, bufsize=1, env=env)
         self.selector = selectors.DefaultSelector()
         self.selector.register(self.process.stdout, selectors.EVENT_READ)
         self.timeout = float(timeout)
-        description = self.request("describe")
+        try:
+            description = self.request("describe")
+        except BaseException:
+            self.close()
+            raise
         self.agents = tuple(int(agent) for agent in description["agents"])
         self.name = str(description["name"])
         self.version = str(description["version"])
@@ -66,13 +70,20 @@ class JsonEnvironment:
 
     def close(self):
         if self.process.poll() is None:
-            self.process.terminate()
+            # EOF lets native workers release their SDK resources before termination is needed.
+            self.process.stdin.close()
             try:
                 self.process.wait(timeout=5)
             except subprocess.TimeoutExpired:
-                self.process.kill()
-                self.process.wait()
+                self.process.terminate()
+                try:
+                    self.process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    self.process.kill()
+                    self.process.wait()
         self.selector.close()
+        self.process.stdin.close()
+        self.process.stdout.close()
 
 
 class ParallelEnvironment:
@@ -137,21 +148,24 @@ def load_environment(factory, options):
 
 
 def serve(environment, input_stream, output_stream):
-    for line in input_stream:
-        try:
-            request = json.loads(line)
-            operation = request["operation"]
-            if operation == "describe":
-                result = {"agents": list(environment.agents), "name": environment.name,
-                          "version": environment.version,
-                          "data_kind": getattr(environment, "data_kind", "measured_run")}
-            elif operation == "reset":
-                result = environment.reset(int(request["seed"])).__dict__
-            elif operation == "step":
-                result = environment.step({int(agent): int(action) for agent, action in request["actions"].items()}).__dict__
-            else:
-                raise ValueError("Unsupported environment operation")
-            output_stream.write(json.dumps(json_value(result), allow_nan=False) + "\n")
-        except Exception as error:
-            output_stream.write(json.dumps({"error": str(error)}) + "\n")
-        output_stream.flush()
+    try:
+        for line in input_stream:
+            try:
+                request = json.loads(line)
+                operation = request["operation"]
+                if operation == "describe":
+                    result = {"agents": list(environment.agents), "name": environment.name,
+                              "version": environment.version,
+                              "data_kind": getattr(environment, "data_kind", "measured_run")}
+                elif operation == "reset":
+                    result = environment.reset(int(request["seed"])).__dict__
+                elif operation == "step":
+                    result = environment.step({int(agent): int(action) for agent, action in request["actions"].items()}).__dict__
+                else:
+                    raise ValueError("Unsupported environment operation")
+                output_stream.write(json.dumps(json_value(result), allow_nan=False) + "\n")
+            except Exception as error:
+                output_stream.write(json.dumps({"error": str(error)}) + "\n")
+            output_stream.flush()
+    finally:
+        environment.close()

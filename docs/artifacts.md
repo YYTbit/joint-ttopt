@@ -25,8 +25,8 @@ The bounds input contains `sample_bounds`, optional `second_moments`, `reference
 
 ```bash
 python -m joint_ttopt record-probes \
-  --environment configs/avalon.yaml --model Qwen3-8B \
-  --head checkpoints/action_head.npz --normalization data/entry_normalization.json \
+  --environment data/environment.yaml --model Qwen3-8B \
+  --head checkpoints/action_head.npz --normalization data/entry/normalization.json \
   --bounds data/gradient_bounds.json --output calibration/probes
 python -m joint_ttopt calibrate \
   --manifest calibration/probes/manifest.json --output calibration/reference.json
@@ -36,10 +36,22 @@ The paper configuration refreshes calibration at each update round. Probes use t
 
 Existing gradient records can be processed with `update`. NPZ inputs use the archive format implemented in `joint_ttopt.storage`.
 
-## Benchmark integration
+## Environment integration
 
-Avalon uses the released engine. Decrypto requires a clue catalog mapping action identifiers to `meaning` and a three-clue `native` action. Other benchmark adapters expose `agents`, `name`, `version`, `reset(seed)`, `step(actions)`, and `close()`, with a `module:function` factory or a JSONL subprocess interface.
+An environment factory exposes `agents`, `name`, `version`, `reset(seed)`, `step(actions)`, and `close()`. `agents` contains integer participant identifiers, and `version` identifies the environment release and task configuration. Use the benchmark's released observations, legal actions and native scoring rules.
 
-A frame provides local observations, legal actions, rewards, termination status, task rules, private roles, visible histories, and native metrics. Evaluation forwards actions to the corresponding benchmark role and uses its released scoring rules.
+Both `reset` and `step` return a `Frame` from `joint_ttopt.environments`. It contains participant-local `observations`, `legal_actions`, `rewards`, `roles`, and visible `histories`, together with the public `task`, `terminated`, and native `metrics`. Legal actions map integer action identifiers to their meanings. The action head and renderer use the same action vocabulary during entry training and deployment. Terminal frames retain every participant's reward.
 
-Use `--resume results/joint/state.npz` with the original run configuration to restore a checkpoint. `metrics`, `normalize`, and `summarize` process measured run outputs.
+The configuration declares `factory` in `module:function` form, constructor `options`, `task_id`, and `partner_schedule_id`. Entry collection additionally declares `split: entry_training`; use separate task, partner-schedule, and seed identifiers for deployment.
+
+[environment.py](../examples/environment.py) and its [configuration](../examples/environment.yaml) provide an executable two-participant session example. It is a synthetic protocol example. Configure your benchmark factory in `data/environment.yaml` before the preparation and deployment commands above.
+
+`JsonEnvironment` connects a worker in a separate environment. Set its factory to `joint_ttopt.environments:JsonEnvironment` and pass a `command` argument list through `options`. Each request has `operation` equal to `describe`, `reset`, or `step`. `describe` returns `agents`, `name`, `version`, and optional `data_kind`; `reset` receives `seed`; `step` receives `actions`. The latter two operations return serialized `Frame` fields. `serve` provides the corresponding worker loop. Diagnostic output goes to stderr.
+
+`ParallelEnvironment` connects environments using the standard parallel reset/step interface. Its action catalog maps integer identifiers to `meaning` and the complete `native` action, including language or tool arguments when applicable. Its metric callback returns the official terminal metrics.
+
+## Evaluation
+
+Native scores come from the benchmark evaluator. Use the names and units in [benchmarks.yaml](../configs/benchmarks.yaml) when exporting measured runs. `metrics`, `normalize`, and `summarize` process those run outputs. Normalization uses measured frozen and strongest-baseline anchors under matched tasks and configurations.
+
+Use `--resume results/joint/state.npz` with the original deployment command to continue a saved run.

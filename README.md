@@ -35,7 +35,7 @@ export HF_ENDPOINT=https://hf-mirror.com
 
 ## Preparation
 
-Download the benchmark sources and install the selected environment's dependencies:
+Download the benchmark sources and install the environment dependencies:
 
 ```bash
 python -m joint_ttopt fetch --output external
@@ -51,11 +51,11 @@ collection and calibration commands. Model and optimizer settings are in
 
 ## Usage
 
-Environment settings are provided for [Avalon](configs/avalon.yaml) and
-[Decrypto](configs/decrypto.yaml). The following example uses Avalon:
+Create `data/environment.yaml` for your environment using the shared interface
+in the [environment guide](docs/artifacts.md#environment-integration), then run:
 
 ```bash
-python -m joint_ttopt deploy --environment configs/avalon.yaml \
+python -m joint_ttopt deploy --environment data/environment.yaml \
   --model Qwen3-8B --head checkpoints/action_head.npz \
   --normalization data/entry/normalization.json \
   --calibration calibration/reference.json \
@@ -64,16 +64,16 @@ python -m joint_ttopt deploy --environment configs/avalon.yaml \
 
 ## Evaluation
 
-Export the win rate at each deployment horizon:
+Export the environment's native metric at each deployment horizon:
 
 ```bash
 python -m joint_ttopt metrics results/joint --horizons 10 25 50 \
-  --metric win_rate --output results/metrics.jsonl
+  --metric METRIC --output results/metrics.jsonl
 ```
 
-The [evaluation guide](docs/artifacts.md#benchmark-integration) describes result
-normalization and aggregation. Metric names for other benchmarks are listed in
-[configs/benchmarks.yaml](configs/benchmarks.yaml).
+Set `METRIC` to the evaluator's metric name. The paper's native metrics are listed
+in [configs/benchmarks.yaml](configs/benchmarks.yaml). The
+[evaluation guide](docs/artifacts.md#evaluation) describes normalization and aggregation.
 
 ## Tests
 

@@ -1,5 +1,7 @@
 import io
 import json
+from pathlib import Path
+import sys
 from types import SimpleNamespace
 
 import numpy as np
@@ -10,7 +12,7 @@ from joint_ttopt.calibration import Calibration, paired_second_moment
 from joint_ttopt.confidence import RewardScale
 from joint_ttopt.controls import factor_update, fixed_ranks
 from joint_ttopt.deployment import run_deployment
-from joint_ttopt.environments import Frame, serve
+from joint_ttopt.environments import Frame, JsonEnvironment, load_environment, serve
 from joint_ttopt.factors import FactorMatrix
 from joint_ttopt.optimizer import Coordinator, GradientBatch
 from joint_ttopt.probes import load_probe_calibration, record_probes, unit_direction
@@ -44,7 +46,7 @@ class EnvironmentFixture:
         return Frame({}, {}, {0: 1.0}, True, "fixture", {}, {}, {"fixture_metric": 1.0})
 
     def close(self):
-        pass
+        self.closed = True
 
 
 class PolicyFixture:
@@ -84,11 +86,39 @@ def test_native_service_serializes_exact_frame_fields():
     requests = io.StringIO('{"operation":"describe"}\n{"operation":"reset","seed":2}\n'
                           '{"operation":"step","actions":{"0":0}}\n')
     response = io.StringIO()
-    serve(EnvironmentFixture(), requests, response)
+    environment = EnvironmentFixture()
+    serve(environment, requests, response)
     rows = [json.loads(row) for row in response.getvalue().splitlines()]
     assert rows[0]["agents"] == [0]
     assert Frame.from_record(rows[1]).legal_actions == {0: {0: "action"}}
     assert Frame.from_record(rows[2]).terminated
+    assert environment.closed
+
+
+def test_shared_environment_example_runs_in_a_separate_process():
+    script = Path(__file__).resolve().parents[1] / "examples" / "environment.py"
+    environment = JsonEnvironment([sys.executable, str(script)], timeout=10)
+    try:
+        assert environment.data_kind == "software_fixture"
+        assert environment.agents == (0, 1)
+        assert set(environment.reset(17).legal_actions) == {0, 1}
+        final = environment.step({0: 1, 1: 1})
+        assert final.terminated and final.metrics == {"coordination": 1.0}
+        assert final.rewards == {0: 1.0, 1: 1.0}
+    finally:
+        environment.close()
+    assert environment.process.returncode == 0
+
+
+def test_shared_environment_example_is_loadable_from_its_configuration():
+    from joint_ttopt.cli import read_config
+
+    path = Path(__file__).resolve().parents[1] / "examples" / "environment.yaml"
+    config = read_config(path)
+    environment = load_environment(config["factory"], config["options"])
+    assert environment.reset(17).observations == {0: {"round": 0}, 1: {"round": 0}}
+    assert environment.step({0: 0, 1: 1}).rewards == {0: 0.0, 1: 0.0}
+    environment.close()
 
 
 def test_factor_control_uses_factor_derivatives_and_preserves_capacity():

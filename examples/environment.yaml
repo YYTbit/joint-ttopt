@@ -1,0 +1,4 @@
+factory: examples.environment:ExampleEnvironment
+task_id: coordination_example_deployment
+partner_schedule_id: coordination_example_joint
+options: {}
