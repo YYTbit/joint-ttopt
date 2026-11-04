@@ -46,7 +46,7 @@ class FrozenActionPolicy:
         if weight.ndim != 2 or not np.isfinite(weight).all():
             raise ValueError("Action head has an invalid weight matrix")
         arguments = {"revision": revision, "device_map": device_map,
-                     "torch_dtype": getattr(torch, dtype), "attn_implementation": "eager"}
+                     "torch_dtype": getattr(torch, dtype)}
         if metadata.get("model_type") == "gpt_oss":
             arguments["quantization_config"] = Mxfp4Config(dequantize=True)
         backbone = AutoModel.from_pretrained(checkpoint, **arguments)

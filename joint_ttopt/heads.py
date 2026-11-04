@@ -21,7 +21,7 @@ def train_action_head(checkpoint, revision, training_data, output, renderer_opti
         raise ValueError("Entry action identifiers are nonnegative")
     torch.manual_seed(seed)
     model_config = AutoConfig.from_pretrained(checkpoint, revision=revision)
-    arguments = {"revision": revision, "torch_dtype": torch.float32, "attn_implementation": "eager"}
+    arguments = {"revision": revision, "torch_dtype": torch.float32}
     if model_config.model_type == "gpt_oss":
         arguments["quantization_config"] = Mxfp4Config(dequantize=True)
     backbone = AutoModel.from_pretrained(checkpoint, **arguments).to(device)

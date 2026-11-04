@@ -11,7 +11,7 @@ from joint_ttopt.policy import FrozenActionPolicy
 from joint_ttopt.torch_layers import PersistentExperts, PersistentLinear
 
 
-def tiny_config(kind):
+def tiny_config(kind, attention=None):
     common = {"vocab_size": 32, "hidden_size": 8, "intermediate_size": 12,
               "num_hidden_layers": 1, "num_attention_heads": 2, "num_key_value_heads": 1,
               "max_position_embeddings": 64, "attention_dropout": 0.0}
@@ -22,14 +22,16 @@ def tiny_config(kind):
     else:
         result = GptOssConfig(**dict(common, num_local_experts=4, num_experts_per_tok=2,
                                     head_dim=4, layer_types=["full_attention"]))
-    result._attn_implementation = "eager"
+    if attention is not None:
+        result._attn_implementation = attention
     return result
 
 
 @pytest.mark.parametrize("kind", ["qwen3", "llama", "gpt_oss"])
-def test_complete_score_factors_match_dense_autograd_on_backbone_interfaces(kind):
+@pytest.mark.parametrize("attention", [None, "eager"])
+def test_complete_score_factors_match_dense_autograd_on_backbone_interfaces(kind, attention):
     torch.manual_seed(23)
-    backbone = AutoModel.from_config(tiny_config(kind))
+    backbone = AutoModel.from_config(tiny_config(kind, attention))
     backbone.eval()
     native = copy.deepcopy(backbone)
     policy = FrozenActionPolicy(backbone, nn.Linear(8, 4), seed=8)
