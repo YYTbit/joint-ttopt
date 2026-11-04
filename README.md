@@ -28,7 +28,7 @@ Use Python 3.10 or later and install PyTorch for your system.
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-python -m pip install -e '.[models,test]' \
+python -m pip install -e '.[models]' \
   --index-url https://pypi.tuna.tsinghua.edu.cn/simple
 export HF_ENDPOINT=https://hf-mirror.com
 ```
@@ -74,12 +74,6 @@ python -m joint_ttopt metrics results/joint --horizons 10 25 50 \
 Set `METRIC` to the evaluator's metric name. The paper's native metrics are listed
 in [configs/benchmarks.yaml](configs/benchmarks.yaml). The
 [evaluation guide](docs/artifacts.md#evaluation) describes normalization and aggregation.
-
-## Tests
-
-```bash
-python -m pytest -q
-```
 
 ## License
 

@@ -34,8 +34,6 @@ python -m joint_ttopt calibrate \
 
 The paper configuration refreshes calibration at each update round. Probes use the incumbent fast weights and a frozen history-baseline snapshot; paired seeds are reused across the two states. Completed transitions provide the repeated secant residuals after the entry round. Probe recording restores the policy and action-sampling random state. `calibration.refresh_interval: 0` reuses the supplied record. Every episode records action forwards, gradient replay forwards and backwards, calibration trajectories, and elapsed stage times; these counts come from executed trajectories.
 
-Existing gradient records can be processed with `update`. NPZ inputs use the archive format implemented in `joint_ttopt.storage`.
-
 ## Environment integration
 
 An environment factory exposes `agents`, `name`, `version`, `reset(seed)`, `step(actions)`, and `close()`. `agents` contains integer participant identifiers, and `version` identifies the environment release and task configuration. Use the benchmark's released observations, legal actions and native scoring rules.
@@ -44,7 +42,7 @@ Both `reset` and `step` return a `Frame` from `joint_ttopt.environments`. It con
 
 The configuration declares `factory` in `module:function` form, constructor `options`, `task_id`, and `partner_schedule_id`. Entry collection additionally declares `split: entry_training`; use separate task, partner-schedule, and seed identifiers for deployment.
 
-[environment.py](../examples/environment.py) and its [configuration](../examples/environment.yaml) provide an executable two-participant session example. It is a synthetic protocol example. Configure your benchmark factory in `data/environment.yaml` before the preparation and deployment commands above.
+Configure the benchmark factory in `data/environment.yaml` before the preparation and deployment commands above.
 
 `JsonEnvironment` connects a worker in a separate environment. Set its factory to `joint_ttopt.environments:JsonEnvironment` and pass a `command` argument list through `options`. Each request has `operation` equal to `describe`, `reset`, or `step`. `describe` returns `agents`, `name`, `version`, and optional `data_kind`; `reset` receives `seed`; `step` receives `actions`. The latter two operations return serialized `Frame` fields. `serve` provides the corresponding worker loop. Diagnostic output goes to stderr.
 

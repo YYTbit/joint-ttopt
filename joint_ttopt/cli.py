@@ -1,6 +1,5 @@
 import argparse
 import json
-import math
 import shlex
 import subprocess
 import sys
@@ -10,9 +9,7 @@ from pathlib import Path
 import yaml
 
 from .confidence import RewardScale
-from .optimizer import Coordinator, GradientBatch
-from .storage import (file_digest, json_value, load_calibration, load_checkpoint,
-                      load_factors, save_checkpoint, write_json)
+from .storage import file_digest, json_value, load_calibration, write_json
 
 
 def read_config(path):
@@ -20,33 +17,6 @@ def read_config(path):
     if not isinstance(value, dict):
         raise ValueError("Configuration is a mapping")
     return value
-
-
-def update_command(args):
-    gradients, record = load_factors(args.gradients)
-    settings = read_config(args.config)["optimization"]
-    calibration = load_calibration(args.calibration)
-    if args.state:
-        coordinator, extra = load_checkpoint(args.state)
-    else:
-        if args.rank_budget is None:
-            raise ValueError("A new state requires an explicit shared rank budget")
-        agents = sorted({agent for agent, block in gradients})
-        caps = ({int(agent): int(value) for agent, value in json.loads(Path(args.agent_caps).read_text()).items()}
-                if args.agent_caps else dict.fromkeys(agents, math.ceil(3 * args.rank_budget / len(agents))))
-        coordinator = Coordinator({key: value.shape for key, value in gradients.items()}, args.rank_budget, caps,
-                                  settings["step_margin"], settings["error_budget"])
-        extra = {}
-    version = int(record["policy_version"])
-    count = int(record["sample_count"])
-    norms = {int(agent): values for agent, values in record.get("sample_norms", {}).items()}
-    errors = {int(agent): value for agent, value in record.get("approximation_errors", {}).items()}
-    result = coordinator.step(GradientBatch(version, gradients, count, norms, errors), calibration)
-    destination = Path(args.output)
-    destination.mkdir(parents=True, exist_ok=True)
-    save_checkpoint(destination / "state.npz", coordinator, extra)
-    write_json(destination / "update.json", result)
-    print(json.dumps(json_value(result), indent=2, allow_nan=False))
 
 
 def calibrate_command(args):
@@ -170,15 +140,6 @@ def external_command(args):
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Joint Test-Time Optimization from Multi-Agent Interaction of Large Language Models")
     commands = parser.add_subparsers(dest="operation", required=True)
-    update = commands.add_parser("update")
-    update.add_argument("--gradients", required=True)
-    update.add_argument("--calibration", required=True)
-    update.add_argument("--config", default="configs/paper.yaml")
-    update.add_argument("--state")
-    update.add_argument("--rank-budget", type=int)
-    update.add_argument("--agent-caps")
-    update.add_argument("--output", required=True)
-    update.set_defaults(function=update_command)
     calibration = commands.add_parser("calibrate")
     calibration.add_argument("--manifest", required=True)
     calibration.add_argument("--config", default="configs/paper.yaml")
@@ -217,15 +178,6 @@ def main(argv=None):
     source.add_argument("--names", nargs="+")
     source.add_argument("--output", default="external")
     source.set_defaults(function=fetch_command)
-    inspection = commands.add_parser("inspect")
-    inspection.add_argument("--state", required=True)
-    def inspect_command(args):
-        coordinator, extra = load_checkpoint(args.state)
-        print(json.dumps(json_value({"version": coordinator.version, "total_rank": coordinator.total_rank,
-                                     "agent_caps": coordinator.agent_caps, "ranks": coordinator.ranks,
-                                     "factor_entries": sum(state.storage for state in coordinator.states.values()),
-                                     "metadata": extra}), indent=2))
-    inspection.set_defaults(function=inspect_command)
     external = commands.add_parser("external")
     external.add_argument("--command", required=True)
     external.add_argument("--request", required=True)

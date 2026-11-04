@@ -39,3 +39,6 @@ reviews/
 .private*/
 _revision*/
 _luna_review/
+/tests/
+/examples/environment.py
+/examples/environment.yaml
