@@ -35,13 +35,23 @@ To adapt interacting LLM agents under a shared rank budget, we formulate test-ti
 
 ## Results
 
+### Main Results
+
 **Table 1.** Performance across five benchmarks and three backbones after 50 episodes (mean ± standard deviation over ten paired seeds). All metrics are higher-is-better; bold marks the best mean per backbone. Native metrics complement normalized gain. Paired comparisons and their confidence intervals are detailed in the supplement.
 
 ![Main results from Table 1](figures/main_results.png)
 
-**Joint adaptation improves all benchmark-backbone settings.** Table 1 reports the highest mean for the full method in all 15 settings. Averaged over backbones, MultiAgentBench KPI rises from TEMPO’s 60.9 to 63.8, Decrypto success from 44.4 to 51.0, and AvalonBench win rate from 38.9 to 44.6. The corresponding GAMA-Bench payoff and SOTOPIA score increase from 0.617 to 0.657 and from 7.27 to 8.14.
+### Ablation Study
 
-**The gain remains at comparable computation.** At 50 episodes, Ours and LoRA TT-RL use 50.12 ± 2.76 and 49.84 ± 2.74 PFLOPs, with a 1.16 difference in normalized gain; Ours uses 65% of TEMPO’s compute. Accounting includes 2,000 trajectory tokens and 256,000 calibration token-passes per round for both methods. Including this dominant calibration cost keeps the comparison sensitive to the complete adaptation procedure.
+**Table 2.** Component ablation across backbones and benchmarks (mean ± standard deviation over ten paired seeds).
+
+![Component ablations from Table 2](figures/ablations.png)
+
+### Analysis
+
+![Analysis from Figure 2](figures/analysis.png)
+
+**Figure 2.** Performance versus (a) horizon and (b) compute at 50 episodes. Bars show seed standard deviations. Retr., Plan., and LoRA denote Retrieval, Planning, and LoRA TT-RL.
 
 ## Getting Started
 
@@ -66,11 +76,10 @@ python -m joint_ttopt fetch --output external
 ```
 
 The paper evaluates MultiAgentBench, GAMA-Bench, SOTOPIA, Decrypto, and AvalonBench.
-Their upstream sources are listed in [configs/sources.json](configs/sources.json).
-Prepare the action head, reward normalization, and calibration inputs using the
-[preparation guide](docs/artifacts.md). Configure `data/environment.yaml` through
-the [environment interface](docs/artifacts.md#environment-integration).
-Model and optimizer settings are in [configs/paper.yaml](configs/paper.yaml).
+Configure the benchmark in `data/environment.yaml`. Prepare the action head,
+reward normalization, and calibration inputs with the commands in
+[input preparation](docs/artifacts.md). The deployment command below uses the
+paper settings from `configs/paper.yaml`.
 
 ### Training and Evaluation
 
@@ -91,8 +100,8 @@ python -m joint_ttopt metrics results/joint --horizons 50 \
   --metric METRIC --output results/metrics.jsonl
 ```
 
-Set `METRIC` to the evaluator's metric name from [configs/benchmarks.yaml](configs/benchmarks.yaml).
-The [evaluation guide](docs/artifacts.md#evaluation) describes normalization and aggregation.
+Set `METRIC` to the native metric returned by the benchmark evaluator.
+[Score aggregation](docs/artifacts.md#evaluation) describes normalization across runs.
 
 ## License
 
