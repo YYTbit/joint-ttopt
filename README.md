@@ -37,21 +37,15 @@ To adapt interacting LLM agents under a shared rank budget, we formulate test-ti
 
 ![Main results from Table 1](figures/main_results.png)
 
-### Ablation Study
+**Joint adaptation improves all benchmark-backbone settings.** Table 1 reports the highest mean for the full method in all 15 settings. Averaged over backbones, MultiAgentBench KPI rises from TEMPO’s 60.9 to 63.8, Decrypto success from 44.4 to 51.0, and AvalonBench win rate from 38.9 to 44.6. The corresponding GAMA-Bench payoff and SOTOPIA score increase from 0.617 to 0.657 and from 7.27 to 8.14.
 
-**Table 2.** Component ablation across backbones and benchmarks (mean ± standard deviation over ten paired seeds).
-
-![Component ablations from Table 2](figures/ablations.png)
-
-**Shared allocation benefits unequal update values.** Per-agent persistent LoRA uses separate agent budgets; Equal-split persistent LoRA divides the common budget evenly. Both preserve the state and common step control. Joint allocation improves their KPI by 0.7 and 1.2 points and Decrypto success by 2.0 and 2.3 points. Value-proportional allocates capacity in proportion to update values; its KPI averages 62.3 against 63.8 for the full method. Spectral selection accounts for each direction’s marginal value.
-
-### Analysis
-
-![Analysis from Figure 2](figures/analysis.png)
+![Performance versus horizon and compute](figures/analysis.png)
 
 **Figure 2.** Performance versus (a) horizon and (b) compute at 50 episodes. Bars show seed standard deviations. Retr., Plan., and LoRA denote Retrieval, Planning, and LoRA TT-RL.
 
 **Persistent adaptation benefits from continued interaction.** Figure 2(a) shows the lead over TEMPO growing from 0.42 at ten episodes to 1.01 at 100. Persistent states retain earlier feedback, while repeated allocation responds to changing update values. The common 50-episode normalization anchors keep this comparison on the same scale.
+
+**The gain remains at comparable computation.** Figure 2(b) relates performance to cumulative compute. At 50 episodes, Ours and LoRA TT-RL use 50.12 ± 2.76 and 49.84 ± 2.74 PFLOPs, with a 1.16 difference in normalized gain; Ours uses 65% of TEMPO’s compute.
 
 ## Getting Started
 
