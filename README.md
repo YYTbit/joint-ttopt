@@ -23,15 +23,11 @@ episodes, supporting persistent joint adaptation.
 
 To adapt interacting LLM agents under a shared rank budget, we formulate test-time parameter training as joint optimization over persistent low-rank weights.
 
-1. Sample joint trajectories under the current policy version. Estimate the update field and confidence radii.
-2. Set the secant estimate and step size from observed and calibrated scales. Form the block proposals and spectral mode values.
-3. Greedily allocate ranks under the shared budget and agent caps. Retain the leading singular directions for each block.
-4. Validate factor values, budgets, and policy versions. Commit the proposals jointly if validation succeeds; otherwise retain the incumbent state.
-5. Record ranks, spectral margins, and the joint gap bound. The committed state enters the next episode.
-
 ![Joint adaptation in five-player AvalonBench](figures/figure1_overview.png)
 
 **Figure 1.** Joint adaptation in five-player AvalonBench (schematic). (a) Context-dependent experience reuse. (b) Equal per-agent rank budgets. (c) Changing learning signals. (d) Shared spectral allocation, interaction-sensitive steps, and persistent weights. Optimality holds for the per-round proximal objective. Tile heights indicate update values; solid tiles mark retained directions, totaling ten in both allocations. Agent colors identify players, whose roles remain private.
+
+![Algorithm 1](figures/algorithm.png)
 
 ## Results
 
@@ -47,24 +43,24 @@ To adapt interacting LLM agents under a shared rank budget, we formulate test-ti
 
 ![Component ablations from Table 2](figures/ablations.png)
 
+**Shared allocation benefits unequal update values.** Per-agent persistent LoRA uses separate agent budgets; Equal-split persistent LoRA divides the common budget evenly. Both preserve the state and common step control. Joint allocation improves their KPI by 0.7 and 1.2 points and Decrypto success by 2.0 and 2.3 points. Value-proportional allocates capacity in proportion to update values; its KPI averages 62.3 against 63.8 for the full method. Spectral selection accounts for each direction’s marginal value.
+
 ### Analysis
 
 ![Analysis from Figure 2](figures/analysis.png)
 
 **Figure 2.** Performance versus (a) horizon and (b) compute at 50 episodes. Bars show seed standard deviations. Retr., Plan., and LoRA denote Retrieval, Planning, and LoRA TT-RL.
 
+**Persistent adaptation benefits from continued interaction.** Figure 2(a) shows the lead over TEMPO growing from 0.42 at ten episodes to 1.01 at 100. Persistent states retain earlier feedback, while repeated allocation responds to changing update values. The common 50-episode normalization anchors keep this comparison on the same scale.
+
 ## Getting Started
 
 ### Environment Setup
 
-Use Python 3.10 or later and install PyTorch for your system.
-
 ```bash
-python -m venv .venv
-source .venv/bin/activate
-python -m pip install -e '.[models]' \
-  --index-url https://pypi.tuna.tsinghua.edu.cn/simple
-export HF_ENDPOINT=https://hf-mirror.com
+conda create -n joint-ttopt python=3.10 -y
+conda activate joint-ttopt
+pip install -e '.[models]'
 ```
 
 ### Data Preparation
@@ -81,7 +77,7 @@ reward normalization, and calibration inputs with the commands in
 [input preparation](docs/artifacts.md). The deployment command below uses the
 paper settings from `configs/paper.yaml`.
 
-### Training and Evaluation
+## Training
 
 Run joint test-time training in the configured environment:
 
@@ -92,6 +88,8 @@ python -m joint_ttopt deploy --environment data/environment.yaml \
   --calibration calibration/reference.json \
   --calibration-bounds data/gradient_bounds.json --output results/joint
 ```
+
+## Evaluation
 
 Export the environment's native metric after the 50-episode deployment:
 
