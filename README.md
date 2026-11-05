@@ -19,7 +19,19 @@ exceeds the strongest baseline by 0.93 while using 65% of its computation. The
 advantage increases from 0.42 to 1.01 as deployment extends from 10 to 100
 episodes, supporting persistent joint adaptation.
 
+## Method
+
+To adapt interacting LLM agents under a shared rank budget, we formulate test-time parameter training as joint optimization over persistent low-rank weights. Each round estimates update directions from interaction rewards, allocates rank to their spectral modes, and carries the selected parameter states into subsequent episodes.
+
 ![Joint adaptation in five-player AvalonBench](figures/figure1_overview.png)
+
+**Figure 1.** Joint adaptation in five-player AvalonBench (schematic). (a) Context-dependent experience reuse. (b) Equal per-agent rank budgets. (c) Changing learning signals. (d) Shared spectral allocation, interaction-sensitive steps, and persistent weights. Optimality holds for the per-round proximal objective. Tile heights indicate update values; solid tiles mark retained directions, totaling ten in both allocations. Agent colors identify players, whose roles remain private.
+
+## Main Results
+
+**Table 1.** Performance across five benchmarks and three backbones after 50 episodes (mean ± standard deviation over ten paired seeds). All metrics are higher-is-better; bold marks the best mean per backbone. Native metrics complement normalized gain. Paired comparisons and their confidence intervals are detailed in the supplement.
+
+![Main results from Table 1](figures/main_results.png)
 
 ## Installation
 
@@ -77,4 +89,4 @@ in [configs/benchmarks.yaml](configs/benchmarks.yaml). The
 
 ## License
 
-The code uses the [MIT License](LICENSE). The paper image retains its published license.
+The code uses the [MIT License](LICENSE).
