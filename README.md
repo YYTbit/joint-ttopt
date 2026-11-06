@@ -32,7 +32,9 @@ To address this problem, we introduce *joint test-time optimization from multi-a
 To retain reward-driven adaptation, each agent trains low-rank updates on a frozen pretrained LLM. For adapted linear block $`b\in\mathcal B_i`$,
 
 ```math
-W_{i,b,k}=W_{i,b,0}+Z_{i,b,k},\qquad Z_{i,b,0}=0,
+\begin{aligned}
+W_{i,b,k}&=W_{i,b,0}+Z_{i,b,k},\qquad Z_{i,b,0}=0,
+\end{aligned}
 \tag{2}
 ```
 
