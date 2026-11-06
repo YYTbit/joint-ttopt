@@ -27,26 +27,29 @@ To implement each shared-rank decision, Algorithm 1 combines interaction samplin
 
 **Figure 1.** Joint adaptation in five-player AvalonBench (schematic). (a) Context-dependent experience reuse. (b) Equal per-agent rank budgets. (c) Changing learning signals. (d) Shared spectral allocation, interaction-sensitive steps, and persistent weights. Optimality holds for the per-round proximal objective. Tile heights indicate update values; solid tiles mark retained directions, totaling ten in both allocations. Agent colors identify players, whose roles remain private.
 
-**Execution order for a deployment update.**
+**Algorithm 1. Shared-capacity multi-agent test-time training**
 
-Initialize the persistent parameter states and the joint secant to zero. For each
-deployment round, execute the following steps.
+**Require:** Policies $\boldsymbol\pi_{\boldsymbol\theta_0}$, game $\Gamma$, rounds $K$, agents $\mathcal U$, blocks $\{\mathcal B_i\}$
 
-| Step | Operation | Information and output |
-| --- | --- | --- |
-| 1 | Set policy version | Incumbent fast weights and an action-independent baseline |
-| 2 | Collect interaction | Complete joint trajectories under the incumbent policy |
-| 3 | Form gradients | Recorded actions, rewards, and regularizer contributions |
-| 4 | Measure secant | Current and preceding gradients with the completed joint state change |
-| 5 | Set common scale | Calibrated local scale, secant value, tolerance, and step margin |
-| 6 | Form proposals | Incumbent state plus the scaled empirical gradient |
-| 7 | Allocate rank | Descending mode values under shared and agent capacity limits |
-| 8 | Validate and commit | Finite factors, consistent policy versions, and feasible ranks |
-| 9 | Record diagnostics | Proximal value, spectral margins, and conditional confidence bound |
+**Require:** Budgets $R,\{r_i\}$, samples $\{n_k\}$, normalization and calibration records
 
-If validation succeeds, commit the candidate states jointly. Otherwise, retain
-the incumbent states. The committed state enters the next episode through the
-persistent parameter updates. Return the adapted joint policy after the final round.
+1. $Z_{i,b,0}\gets0$, $\widehat s_{-1}\gets0$
+2. **for** $k=0,\ldots,K-1$ **do**
+3. Sample joint trajectories under policy version $k$
+4. Estimate $\widehat G_k$ and confidence radii
+5. Set $\widehat s_{k-1},\eta_k,\lambda_k$ from observed and calibrated scales
+6. Form all $\widehat Y_{i,b,k}$ and spectral mode values
+7. Greedily allocate $\{q_{i,b,k}\}$ under $R,\{r_i\}$
+8. Form $Z_{i,b,k}^{+}\gets\Pi_{q_{i,b,k}}(\widehat Y_{i,b,k})$
+9. Validate factor values, budgets, and policy versions
+10. **if** validation succeeds **then**
+11. Commit $Z_{k+1}\gets Z_k^+$ jointly
+12. **else**
+13. Retain $Z_{k+1}\gets Z_k$
+14. **end if**
+15. Record ranks, spectral margins, and the joint gap bound
+16. **end for**
+17. **return** $\boldsymbol\pi_{\boldsymbol\theta_K}$
 
 ![Algorithm 1](figures/algorithm.png)
 
