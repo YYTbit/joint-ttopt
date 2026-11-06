@@ -21,11 +21,32 @@ episodes, supporting persistent joint adaptation.
 
 ## Algorithm Flow
 
-To adapt interacting LLM agents under a shared rank budget, we formulate test-time parameter training as joint optimization over persistent low-rank weights. Each round estimates update directions from interaction rewards, allocates rank to their spectral modes, and carries the selected parameter states into subsequent episodes. We first define the deployment problem, then derive its exact per-round solution and statistical guarantee, describe the interaction-driven update, and present the deployment algorithm.
+To implement each shared-rank decision, Algorithm 1 combines interaction sampling, gradient estimation, step selection, spectral allocation, and joint commitment.
 
 ![Joint adaptation in five-player AvalonBench](figures/figure1_overview.png)
 
 **Figure 1.** Joint adaptation in five-player AvalonBench (schematic). (a) Context-dependent experience reuse. (b) Equal per-agent rank budgets. (c) Changing learning signals. (d) Shared spectral allocation, interaction-sensitive steps, and persistent weights. Optimality holds for the per-round proximal objective. Tile heights indicate update values; solid tiles mark retained directions, totaling ten in both allocations. Agent colors identify players, whose roles remain private.
+
+**Execution order for a deployment update.**
+
+Initialize the persistent parameter states and the joint secant to zero. For each
+deployment round, execute the following steps.
+
+| Step | Operation | Information and output |
+| --- | --- | --- |
+| 1 | Set policy version | Incumbent fast weights and an action-independent baseline |
+| 2 | Collect interaction | Complete joint trajectories under the incumbent policy |
+| 3 | Form gradients | Recorded actions, rewards, and regularizer contributions |
+| 4 | Measure secant | Current and preceding gradients with the completed joint state change |
+| 5 | Set common scale | Calibrated local scale, secant value, tolerance, and step margin |
+| 6 | Form proposals | Incumbent state plus the scaled empirical gradient |
+| 7 | Allocate rank | Descending mode values under shared and agent capacity limits |
+| 8 | Validate and commit | Finite factors, consistent policy versions, and feasible ranks |
+| 9 | Record diagnostics | Proximal value, spectral margins, and conditional confidence bound |
+
+If validation succeeds, commit the candidate states jointly. Otherwise, retain
+the incumbent states. The committed state enters the next episode through the
+persistent parameter updates. Return the adapted joint policy after the final round.
 
 ![Algorithm 1](figures/algorithm.png)
 
