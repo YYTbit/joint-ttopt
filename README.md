@@ -29,16 +29,16 @@ To address this problem, we introduce *joint test-time optimization from multi-a
 
 **Persistent parameter states.**
 
-To retain reward-driven adaptation, each agent trains low-rank updates on a frozen pretrained LLM. For adapted linear block $b\in\mathcal B_i$,
+To retain reward-driven adaptation, each agent trains low-rank updates on a frozen pretrained LLM. For adapted linear block $`b\in\mathcal B_i`$,
 
-$$
+```math
 W_{i,b,k}=W_{i,b,0}+Z_{i,b,k},\qquad Z_{i,b,0}=0,
 \tag{2}
-$$
+```
 
-where $\mathcal B_i$ is the adapted-block set, $W_{i,b,0}\in\mathbb R^{m_{i,b}\times p_{i,b}}$ is its pretrained weight, and $Z_{i,b,k}$ is the persistent update. Write $Z_i$ for agent $i$'s blocks and $Z=(Z_1,\ldots,Z_n)$ for their joint state.
+where $`\mathcal B_i`$ is the adapted-block set, $`W_{i,b,0}\in\mathbb R^{m_{i,b}\times p_{i,b}}`$ is its pretrained weight, and $`Z_{i,b,k}`$ is the persistent update. Write $`Z_i`$ for agent $`i`$'s blocks and $`Z=(Z_1,\ldots,Z_n)`$ for their joint state.
 
-We use $\|Z\|_{\mathsf F}^2=\sum_{i,b}\|Z_{i,b}\|_F^2$ across the adapted blocks.
+We use $`\|Z\|_{\mathsf F}^2=\sum_{i,b}\|Z_{i,b}\|_F^2`$ across the adapted blocks.
 
 **Exact spectral allocation.**
 
@@ -46,37 +46,37 @@ The agent groups are disjoint and nested within the shared budget, giving a trun
 
 **Joint secant step.**
 
-To respond to changes in the learning signal after completed updates, set, for $k\geq1$,
+To respond to changes in the learning signal after completed updates, set, for $`k\geq1`$,
 
-$$
+```math
 \begin{aligned}
 \Delta_{k-1}&=Z_k-Z_{k-1},\qquad
 \delta_{k-1}=\widehat G_k-\widehat G_{k-1},\\
 \widehat s_{k-1}&=\|\delta_{k-1}\|_{\mathsf F}/\|\Delta_{k-1}\|_{\mathsf F},
 \end{aligned}
 \tag{15}
-$$
+```
 
-where $\widehat G_k$ stacks the empirical gradients and $\widehat s_{k-1}$ measures gradient change per unit of joint parameter movement. Initialize $\widehat s_{-1}=0$, and set the ratio to zero when $\|\Delta_{k-1}\|_{\mathsf F}\leq\nu_\Delta$, where $\nu_\Delta\geq0$ is the declared numerical threshold. To calibrate the local scale, paired-seed probes evaluate gradients at $Z^{\mathrm{cal}}\pm h_jv_j$, where $Z^{\mathrm{cal}}$ is the calibration state, $h_j>0$ the radius, and $\|v_j\|_{\mathsf F}=1$. Their central difference is $\widehat\ell_j=\|\widehat G(Z^{\mathrm{cal}}+h_jv_j) -\widehat G(Z^{\mathrm{cal}}-h_jv_j)\|_{\mathsf F}/(2h_j)$. We set $\widehat L_k=\max\{L_{\min},\max_j\widehat\ell_j\}$ with positive floor $L_{\min}$; $\epsilon_{s,k}\geq0$ is the calibrated upper quantile of repeated secant residuals.
+where $`\widehat G_k`$ stacks the empirical gradients and $`\widehat s_{k-1}`$ measures gradient change per unit of joint parameter movement. Initialize $`\widehat s_{-1}=0`$, and set the ratio to zero when $`\|\Delta_{k-1}\|_{\mathsf F}\leq\nu_\Delta`$, where $`\nu_\Delta\geq0`$ is the declared numerical threshold. To calibrate the local scale, paired-seed probes evaluate gradients at $`Z^{\mathrm{cal}}\pm h_jv_j`$, where $`Z^{\mathrm{cal}}`$ is the calibration state, $`h_j>0`$ the radius, and $`\|v_j\|_{\mathsf F}=1`$. Their central difference is $`\widehat\ell_j=\|\widehat G(Z^{\mathrm{cal}}+h_jv_j) -\widehat G(Z^{\mathrm{cal}}-h_jv_j)\|_{\mathsf F}/(2h_j)`$. We set $`\widehat L_k=\max\{L_{\min},\max_j\widehat\ell_j\}`$ with positive floor $`L_{\min}`$; $`\epsilon_{s,k}\geq0`$ is the calibrated upper quantile of repeated secant residuals.
 
-Both scales precede the current proposal. Given step margin $\delta_s\in(0,1)$, use
+Both scales precede the current proposal. Given step margin $`\delta_s\in(0,1)`$, use
 
-$$
+```math
 \begin{aligned}
 \overline L_k&=\max\{\widehat L_k,\widehat s_{k-1}+\epsilon_{s,k}\},\\
 \eta_k&=\frac{1-\delta_s}{\overline L_k},\qquad
 \lambda_k=\eta_k^{-1}-\overline L_k.
 \end{aligned}
 \tag{16}
-$$
+```
 
 The step decreases as observed gradient variation grows.
 
 **Persistent spectral update.**
 
-Given a step $\eta_k>0$, each block forms $\widehat Y_{i,b,k}=Z_{i,b,k}+\eta_k\widehat G_{i,b,k}$.
+Given a step $`\eta_k>0`$, each block forms $`\widehat Y_{i,b,k}=Z_{i,b,k}+\eta_k\widehat G_{i,b,k}`$.
 
-Let $q_{i,b,k}$ denote the selected block rank. The selected ranks give $Z_{i,b,k+1}=\Pi_{q_{i,b,k}}(\widehat Y_{i,b,k})$, where $\Pi_q$ retains the leading $q$ singular directions. A zero-rank assignment releases the block's previous capacity. The committed state enters the next episode through Equation (2).
+Let $`q_{i,b,k}`$ denote the selected block rank. The selected ranks give $`Z_{i,b,k+1}=\Pi_{q_{i,b,k}}(\widehat Y_{i,b,k})`$, where $`\Pi_q`$ retains the leading $`q`$ singular directions. A zero-rank assignment releases the block's previous capacity. The committed state enters the next episode through Equation (2).
 
 ![Algorithm 1](figures/algorithm.png)
 
