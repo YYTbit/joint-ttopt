@@ -21,6 +21,21 @@ def file_digest(path):
     return digest.hexdigest()
 
 
+def record_digest(value):
+    return hashlib.sha256(json.dumps(json_value(value), sort_keys=True,
+                                     allow_nan=False).encode()).hexdigest()
+
+
+def field_digest(field):
+    checksum = hashlib.sha256()
+    for (agent, block), matrix in sorted(field.items()):
+        checksum.update(json.dumps([agent, block, matrix.shape]).encode())
+        for value in (matrix.left, matrix.right):
+            checksum.update(json.dumps(value.shape).encode())
+            checksum.update(np.ascontiguousarray(value, dtype="<f8").tobytes())
+    return checksum.hexdigest()
+
+
 def json_value(value):
     if is_dataclass(value):
         return json_value(asdict(value))
@@ -147,6 +162,14 @@ def load_checkpoint(path):
             validate_field(coordinator.preceding_states, states)
             validate_field(coordinator.preceding_gradients, states)
         return coordinator, metadata.get("extra", {})
+
+
+def checkpoint_extra(path):
+    with np.load(path, allow_pickle=False) as archive:
+        metadata = json.loads(str(archive["metadata"].item()))
+    if metadata.get("format") != "joint_ttopt_checkpoint_v1":
+        raise ValueError("Unsupported checkpoint format")
+    return metadata.get("extra", {})
 
 
 def load_calibration(path):

@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 import numpy as np
 import torch
@@ -33,12 +34,15 @@ class FrozenActionPolicy:
     @classmethod
     def from_pretrained(cls, checkpoint, head_path, seed=0, revision=None,
                         device_map="auto", dtype="bfloat16", **options):
-        from transformers import AutoModel, AutoTokenizer, Mxfp4Config
+        from transformers import AutoConfig, AutoModel, AutoTokenizer
+        from .model_io import quantization_options
         from .storage import file_digest
         with np.load(head_path, allow_pickle=False) as archive:
             metadata = json.loads(str(archive["metadata"].item()))
             weight = np.array(archive["weight"], copy=True)
             bias = np.array(archive["bias"], copy=True) if "bias" in archive else None
+        if metadata.get("training_complete") is False:
+            raise ValueError("Deployment requires a completed action-head training stage")
         if revision is None:
             revision = metadata.get("revision")
         if metadata.get("checkpoint") != checkpoint or metadata.get("revision") != revision:
@@ -47,8 +51,10 @@ class FrozenActionPolicy:
             raise ValueError("Action head has an invalid weight matrix")
         arguments = {"revision": revision, "device_map": device_map,
                      "torch_dtype": getattr(torch, dtype)}
-        if metadata.get("model_type") == "gpt_oss":
-            arguments["quantization_config"] = Mxfp4Config(dequantize=True)
+        model_config = AutoConfig.from_pretrained(checkpoint, revision=revision)
+        if metadata.get("model_type", model_config.model_type) != model_config.model_type:
+            raise ValueError("Action-head record has a different backbone architecture")
+        arguments.update(quantization_options(model_config))
         backbone = AutoModel.from_pretrained(checkpoint, **arguments)
         if any(parameter.is_meta for parameter in backbone.parameters()):
             raise ValueError("Deployment gradients require resident backbone tensors")
@@ -64,9 +70,22 @@ class FrozenActionPolicy:
         expected = metadata.get("adapted_blocks")
         if expected is None or sorted(expected) != sorted(result.blocks):
             raise ValueError("Action-head record has a different adapted-block set")
-        tokenizer = AutoTokenizer.from_pretrained(checkpoint, revision=revision)
-        result.renderer = ObservationRenderer(tokenizer, **metadata.get("renderer", {}))
-        result.metadata = dict(metadata, head_sha256=file_digest(head_path))
+        from .model_io import renderer_settings, tokenizer_digest
+        tokenizer_name = metadata.get("tokenizer_directory")
+        if tokenizer_name is not None and Path(tokenizer_name).name != tokenizer_name:
+            raise ValueError("The action-head tokenizer uses a local directory name")
+        tokenizer_path = Path(head_path).parent / tokenizer_name if tokenizer_name else None
+        if tokenizer_path is not None and tokenizer_path.is_dir():
+            tokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
+        else:
+            tokenizer = AutoTokenizer.from_pretrained(checkpoint, revision=revision)
+        fingerprint = tokenizer_digest(tokenizer)
+        if metadata.get("tokenizer_sha256", fingerprint) != fingerprint:
+            raise ValueError("The tokenizer differs from action-head training")
+        result.renderer = ObservationRenderer(tokenizer, **renderer_settings(metadata.get("renderer", {}),
+                                                                             backbone.config.model_type))
+        result.metadata = dict(metadata, head_sha256=file_digest(head_path), tokenizer_sha256=fingerprint,
+                               execution_dtype=dtype, revision=getattr(backbone.config, "_commit_hash", None) or revision)
         return result
 
     def shapes(self, agents):

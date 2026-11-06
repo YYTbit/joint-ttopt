@@ -9,7 +9,9 @@ import numpy as np
 from .optimizer import Coordinator
 from .accounting import derive_seed, memory_snapshot, synchronize_devices, trajectory_work
 from .calibration import Calibration
-from .storage import json_value, load_checkpoint, save_checkpoint, write_json
+from .storage import field_digest, file_digest, json_value, load_checkpoint, record_digest, save_checkpoint, write_json
+from .model_io import policy_identity
+from .records import FileLock
 from .trajectories import HistoryBaseline, Trajectory, estimate_gradients, returns_to_go
 
 
@@ -49,6 +51,7 @@ def collect_trajectory(environment, policy, seed, identifier, baseline_version, 
 
 def deployment_signature(config, policy, environment, calibration_digest, scales):
     record = {"algorithm": config, "checkpoint": policy.metadata.get("checkpoint"),
+              "policy": policy_identity(policy),
               "revision": policy.metadata.get("revision"), "head_sha256": policy.metadata.get("head_sha256"),
               "environment": environment.name, "environment_version": environment.version,
               "calibration_sha256": calibration_digest,
@@ -60,6 +63,14 @@ def deployment_signature(config, policy, environment, calibration_digest, scales
 def run_deployment(environment, policy, calibration, calibration_digest, scales,
                    config, output, seed=0, method="joint", checkpoint=None):
     output = Path(output)
+    with FileLock(output.parent / (output.name + ".lock")):
+        return _run_deployment(environment, policy, calibration, calibration_digest, scales,
+                                config, output, seed, method, checkpoint)
+
+
+def _run_deployment(environment, policy, calibration, calibration_digest, scales,
+                    config, output, seed, method, checkpoint):
+    output = Path(output)
     output.mkdir(parents=True, exist_ok=True)
     if not checkpoint and any(output.iterdir()):
         raise ValueError("A new deployment requires an empty output directory")
@@ -69,6 +80,15 @@ def run_deployment(environment, policy, calibration, calibration_digest, scales,
         raise ValueError("Updating set is a nonempty subset of benchmark participants")
     if set(scales) != set(updating):
         raise ValueError("Entry normalization has different updating agents")
+    if calibration is None and method != "frozen":
+        raise ValueError("Parameter updates require a calibration record")
+    calibration_context = calibration.provenance.get("context") if calibration is not None else None
+    if calibration_context is not None:
+        expected = {"policy": policy_identity(policy), "environment": environment.name,
+                    "environment_version": environment.version,
+                    "scales": {agent: scale.__dict__ for agent, scale in scales.items()}}
+        if any(record_digest(calibration_context[name]) != record_digest(value) for name, value in expected.items()):
+            raise ValueError("Calibration uses different model, environment or normalization inputs")
     budget = 8 * len(policy.blocks) if config.get("total_rank") is None else config["total_rank"]
     cap = int(np.ceil(config.get("agent_cap_multiplier", 3.0) * budget / len(updating)))
     caps = {agent: cap for agent in updating}
@@ -76,11 +96,13 @@ def run_deployment(environment, policy, calibration, calibration_digest, scales,
         caps = {agent: budget // len(updating) + int(index < budget % len(updating))
                 for index, agent in enumerate(sorted(updating))}
     coordinator = Coordinator(policy.shapes(updating), budget, caps,
-                              config.get("step_margin", 0.10), config.get("error_budget", 0.05))
+                              config.get("step_margin", 0.10), config.get("error_budget", 0.05),
+                              config.get("step_multipliers"))
     baseline = HistoryBaseline(all_agents, config.get("baseline_window", 8), config.get("discount", 0.99))
     config = dict(config)
     if config.get("comparison_signature") is None:
         comparison = {"benchmark": environment.name, "environment_version": environment.version,
+                      "policy": policy_identity(policy),
                       "task": config.get("task_id"), "partner_schedule": config.get("partner_schedule_id"),
                       "environment_configuration": config.get("environment_configuration_sha256"),
                       "checkpoint": policy.metadata.get("checkpoint"), "revision": policy.metadata.get("revision"),
@@ -91,6 +113,7 @@ def run_deployment(environment, policy, calibration, calibration_digest, scales,
     signature, metadata = deployment_signature(dict(config, method=method, seed=seed), policy,
                                                 environment, calibration_digest, scales)
     completed = 0
+    record_hashes = {}
     records = []
     if checkpoint:
         coordinator, extra = load_checkpoint(checkpoint)
@@ -98,6 +121,18 @@ def run_deployment(environment, policy, calibration, calibration_digest, scales,
             raise ValueError("Checkpoint belongs to a different deployment configuration")
         baseline = HistoryBaseline.restore(extra["baseline"])
         completed = int(extra["episodes"])
+        record_hashes = dict(extra.get("record_hashes", {}))
+        for name, checksum in record_hashes.items():
+            if Path(name).name != name or not (output / name).is_file() or file_digest(output / name) != checksum:
+                raise ValueError("Committed deployment records differ from the checkpoint")
+        pending = [path for pattern in ("episode_*.json", "trajectory_*.json") for path in output.glob(pattern)
+                   if int(path.stem.rsplit("_", 1)[1]) > completed]
+        if pending:
+            import uuid
+            archive = output / "uncommitted" / uuid.uuid4().hex
+            archive.mkdir(parents=True)
+            for path in pending:
+                path.rename(archive / path.name)
         if extra.get("calibration"):
             value = extra["calibration"]
             value["sample_bounds"] = {int(agent): bound for agent, bound in value["sample_bounds"].items()}
@@ -109,7 +144,8 @@ def run_deployment(environment, policy, calibration, calibration_digest, scales,
     if not checkpoint:
         save_checkpoint(output / "state.npz", coordinator,
                          {"signature": signature, "episodes": 0, "baseline": baseline.record(),
-                          "policy_rng": policy.generator.get_state().tolist(), "calibration": asdict(calibration)})
+                          "policy_rng": policy.generator.get_state().tolist(),
+                          "calibration": asdict(calibration) if calibration is not None else None})
     horizon = int(config.get("episodes", 50))
     batch_size = int(config.get("trajectories_per_update", 1))
     if horizon < 1 or batch_size < 1 or horizon % batch_size:
@@ -123,6 +159,8 @@ def run_deployment(environment, policy, calibration, calibration_digest, scales,
         raise ValueError("Calibration refresh interval is nonnegative")
     for episode in range(completed, horizon, batch_size):
         memory_snapshot(reset=True)
+        synchronize_devices()
+        activation_started = time.perf_counter()
         version, states = coordinator.snapshot()
         policy_states = dict(states)
         for agent in set(all_agents) - set(updating):
@@ -130,16 +168,34 @@ def run_deployment(environment, policy, calibration, calibration_digest, scales,
             policy_states.update({(agent, block): FactorMatrix.zeros(*wrapper.matrix_shape)
                                   for block, wrapper in policy.blocks.items()})
         policy.set_states(policy_states, version)
+        synchronize_devices()
+        activation_time = time.perf_counter() - activation_started
         baseline_version, baseline_values = baseline.snapshot()
         calibration_work, calibration_time = {}, 0.0
-        if method != "frozen" and refresh and (episode // batch_size) % refresh == 0:
-            from .probes import load_probe_calibration, record_probes
+        calibration_interrupted = 0
+        reuse_entry = (episode == 0 and method != "frozen" and calibration_context is not None
+                      and calibration_context.get("version") == version
+                      and calibration_context.get("base_state") == field_digest(states)
+                      and record_digest(calibration_context.get("baseline")) == record_digest(baseline.record())
+                      and calibration_context["settings"].get("shared_feedback", False) == (method == "shared_feedback")
+                      and all(calibration_context["settings"].get(name, value) == value
+                              for name, value in calibration_settings.items() if name != "refresh_interval")
+                      and (config.get("calibration_bounds") is None
+                           or record_digest(config["calibration_bounds"]) == record_digest(calibration_context["bounds"])))
+        if reuse_entry:
+            calibration_work = calibration.provenance.get("work", {})
+            calibration_time = calibration.provenance.get("seconds") or 0.0
+            calibration_interrupted = calibration.provenance.get("interrupted_attempts", 0)
+        elif method != "frozen" and refresh and (episode // batch_size) % refresh == 0:
+            from .probes import load_probe_calibration, probe_context, record_probes
             from .storage import load_factors
             from .factors import field_difference, joint_norm
             directory = output / "calibration" / f"version_{version:05d}"
             manifest_path = directory / "manifest.json"
             probe_settings = dict(config, **calibration_settings)
             probe_settings.pop("calibration", None)
+            if method == "shared_feedback":
+                probe_settings["shared_feedback"] = True
             bounds = config.get("calibration_bounds") or {
                 "sample_bounds": calibration.sample_bounds, "second_moments": calibration.second_moments,
                 "reference_scale": calibration.provenance.get("reference_scale", calibration.local_scale),
@@ -154,8 +210,12 @@ def run_deployment(environment, policy, calibration, calibration_digest, scales,
                         or manifest["baseline"] != json_value(baseline.record())
                         or joint_norm(field_difference(recorded_states, states)) > 1e-12):
                     raise ValueError("Recorded calibration belongs to a different incumbent or baseline")
+                expected = probe_context(environment, policy, scales, probe_settings, bounds, calibration_seed,
+                                           states, version, baseline, coordinator.preceding_states)
+                if manifest.get("context") is not None and record_digest(manifest["context"]) != record_digest(expected):
+                    raise ValueError("Recorded calibration uses different model or execution inputs")
             else:
-                if directory.exists() and any(directory.iterdir()):
+                if directory.exists() and any(directory.iterdir()) and not (directory / "collection.json").is_file():
                     attempt = 0
                     while directory.with_name(directory.name + f".incomplete_{attempt}").exists():
                         attempt += 1
@@ -165,8 +225,9 @@ def run_deployment(environment, policy, calibration, calibration_digest, scales,
             calibration = load_probe_calibration(manifest_path, calibration_settings)
             write_json(directory / "calibration.json", asdict(calibration))
             synchronize_devices()
-            calibration_time = time.perf_counter() - started
+            calibration_time = max(time.perf_counter() - started, manifest.get("seconds", 0.0))
             calibration_work = manifest["work"]
+            calibration_interrupted = manifest.get("interrupted_attempts", 0)
         trajectories, scores = [], []
         synchronize_devices()
         start = time.perf_counter()
@@ -179,7 +240,7 @@ def run_deployment(environment, policy, calibration, calibration_digest, scales,
             trajectories.append(trajectory)
             scores.append(metrics)
         synchronize_devices()
-        interaction_time = time.perf_counter() - start
+        interaction_time = time.perf_counter() - start + activation_time
         start = time.perf_counter()
         gradient_time, projection_time = 0.0, 0.0
         if method == "frozen":
@@ -191,7 +252,7 @@ def run_deployment(environment, policy, calibration, calibration_digest, scales,
                                              method == "shared_feedback")
             gradient_time = time.perf_counter() - start
             projection_start = time.perf_counter()
-            block_caps = dict(coordinator.ranks) if episode > 0 and episode % intervals else None
+            block_caps = dict(coordinator.ranks) if episode > 0 and (episode // batch_size) % intervals else None
             if method == "rank_matched":
                 from .controls import factor_update, fixed_ranks
                 proposal = factor_update(coordinator, gradients, calibration, fixed_ranks(coordinator, seed), seed)
@@ -200,7 +261,9 @@ def run_deployment(environment, policy, calibration, calibration_digest, scales,
             update = coordinator.commit(proposal)
             projection_time = time.perf_counter() - projection_start
             if not update["committed"]:
-                raise RuntimeError("Joint commit was rejected before advancing the deployment round")
+                if update.get("reason") == "stale_policy_version":
+                    raise RuntimeError("The incumbent changed during a synchronized deployment round")
+                update = coordinator.retain(gradients, update.get("reason", "validation_rejected"))
         synchronize_devices()
         update_time = time.perf_counter() - start + calibration_time
         if method == "shared_feedback":
@@ -222,14 +285,19 @@ def run_deployment(environment, policy, calibration, calibration_digest, scales,
                    "discounted_returns": {agent: float(returns_to_go(values, config.get("discount", 0.99))[0])
                                             for agent, values in trajectory.rewards.items()},
                    "interaction_seconds": interaction_time / batch_size,
+                   "state_activation_seconds": activation_time / batch_size,
                    "update_seconds": update_time / batch_size,
                    "gradient_seconds": gradient_time / batch_size,
                    "projection_seconds": projection_time / batch_size,
                    "calibration_seconds": calibration_time / batch_size,
-                   "calibration_version": calibration.available_version,
+                   "calibration_version": calibration.available_version if calibration is not None else None,
+                   "entry_calibration_reused": reuse_entry,
+                   "calibration_age": version - calibration.available_version if calibration is not None else None,
                    "peak_memory_by_device": memory_snapshot(),
                    "work": trajectory_work(trajectory, updating, method != "frozen"),
                    "calibration_work": {key: value / batch_size for key, value in calibration_work.items()},
+                   "calibration_interrupted_attempts": calibration_interrupted,
+                   "calibration_work_complete": calibration_interrupted == 0,
                    "joint_trajectory_steps": len(next(iter(trajectory.rewards.values()))),
                    "update": update}
             records.append(row)
@@ -238,6 +306,12 @@ def run_deployment(environment, policy, calibration, calibration_digest, scales,
                 write_json(output / ("trajectory_" + str(episode + offset + 1).zfill(5) + ".json"), trajectory.__dict__)
         extra = {"signature": signature, "episodes": episode + batch_size,
                  "baseline": baseline.record(), "policy_rng": policy.generator.get_state().tolist(),
-                 "calibration": asdict(calibration)}
+                 "calibration": asdict(calibration) if calibration is not None else None,
+                 "record_hashes": record_hashes}
+        for offset in range(batch_size):
+            for prefix in ("episode_", "trajectory_"):
+                name = prefix + str(episode + offset + 1).zfill(5) + ".json"
+                if (output / name).is_file():
+                    record_hashes[name] = file_digest(output / name)
         save_checkpoint(output / "state.npz", coordinator, extra)
     return records

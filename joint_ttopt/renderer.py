@@ -5,7 +5,7 @@ import numpy as np
 
 class ObservationRenderer:
     def __init__(self, tokenizer, discrete_tokens=None, numerical_ranges=None,
-                 bins=64, history_turns=8, chat_template=True):
+                 bins=64, history_turns=8, chat_template=True, chat_template_kwargs=None):
         if int(bins) != bins or bins < 2 or int(history_turns) != history_turns or history_turns < 0:
             raise ValueError("Invalid renderer bin count or history length")
         self.tokenizer = tokenizer
@@ -14,6 +14,7 @@ class ObservationRenderer:
         self.bins = int(bins)
         self.history_turns = int(history_turns)
         self.chat_template = bool(chat_template)
+        self.chat_template_kwargs = dict(chat_template_kwargs or {})
         for lower, upper in self.numerical_ranges.values():
             if not np.isfinite([lower, upper]).all() or upper <= lower:
                 raise ValueError("Numerical feature ranges are finite and increasing")
@@ -21,6 +22,11 @@ class ObservationRenderer:
             for token in mapping.values():
                 if token not in tokenizer.get_vocab():
                     raise ValueError("A reserved observation token is absent from the entry vocabulary")
+
+    def configuration(self):
+        return {"discrete_tokens": self.discrete_tokens, "numerical_ranges": self.numerical_ranges,
+                "bins": self.bins, "history_turns": self.history_turns, "chat_template": self.chat_template,
+                "chat_template_kwargs": self.chat_template_kwargs}
 
     def features(self, value, path=""):
         if isinstance(value, np.ndarray):
@@ -67,7 +73,7 @@ class ObservationRenderer:
         if self.chat_template:
             identifiers = self.tokenizer.apply_chat_template(
                 [{"role": "system", "content": system}, {"role": "user", "content": decision}],
-                tokenize=True, add_generation_prompt=True)
+                tokenize=True, add_generation_prompt=True, **self.chat_template_kwargs)
         else:
             identifiers = self.tokenizer.encode(system + "\n\n" + decision, add_special_tokens=True)
         return tuple(identifiers)

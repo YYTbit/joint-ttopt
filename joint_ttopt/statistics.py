@@ -19,9 +19,21 @@ def normalized_gain(score, frozen_anchor, baseline_anchor):
 
 
 def deployment_metrics(directories, horizons, metric):
+    from .storage import checkpoint_extra, file_digest
+    if any(type(horizon) is not int or horizon < 1 for horizon in horizons):
+        raise ValueError("Evaluation horizons are positive episode counts")
     rows = []
     for directory in directories:
-        episodes = [json.loads(path.read_text()) for path in sorted(Path(directory).glob("episode_*.json"))]
+        root = Path(directory)
+        paths = sorted(root.glob("episode_*.json"))
+        if (root / "state.npz").is_file():
+            state = checkpoint_extra(root / "state.npz")
+            paths = [path for path in paths if int(path.stem.rsplit("_", 1)[1]) <= state["episodes"]]
+            for path in paths:
+                expected = state.get("record_hashes", {}).get(path.name)
+                if expected is not None and file_digest(path) != expected:
+                    raise ValueError("Metric records differ from the committed deployment state")
+        episodes = [json.loads(path.read_text()) for path in paths]
         if not episodes or any(row.get("data_kind") != "measured_run" for row in episodes):
             raise ValueError("Metric export requires measured native deployment records")
         first = episodes[0]

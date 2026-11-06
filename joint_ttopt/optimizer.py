@@ -39,7 +39,7 @@ class Coordinator:
         self.margin = float(margin)
         self.error_budget = float(error_budget)
         self.step_multipliers = (dict.fromkeys(self.agent_caps, 1.0) if step_multipliers is None
-                                 else dict(step_multipliers))
+                                 else {int(agent): value for agent, value in step_multipliers.items()})
         if set(self.step_multipliers) != set(self.agent_caps):
             raise ValueError("Step multipliers have different participants")
         if any(not np.isfinite(value) or not 0 < value <= 1
@@ -185,6 +185,19 @@ class Coordinator:
 
     def step(self, batch, calibration):
         return self.commit(self.prepare(batch, calibration))
+
+    def retain(self, batch, reason):
+        with self.lock:
+            if batch.version != self.version:
+                raise ValueError("A retained round requires the incumbent policy version")
+            validate_field(batch.gradients, self.states)
+            self.preceding_states = dict(self.states)
+            self.preceding_gradients = dict(batch.gradients)
+            self.version += 1
+            return {"committed": False, "retained_incumbent": True, "reason": reason,
+                    "version": self.version, "block_ranks": dict(self.ranks),
+                    "proximal_value": 0.0, "movement_norm": 0.0, "sample_count": batch.sample_count,
+                    "confidence": {"gap_lower_bound": None}}
 
     def clear_states(self):
         with self.lock:

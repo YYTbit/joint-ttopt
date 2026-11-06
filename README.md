@@ -21,7 +21,7 @@ episodes, supporting persistent joint adaptation.
 
 ## Algorithm Flow
 
-To adapt interacting LLM agents under a shared rank budget, we formulate test-time parameter training as joint optimization over persistent low-rank weights.
+To adapt interacting LLM agents under a shared rank budget, we formulate test-time parameter training as joint optimization over persistent low-rank weights. Each round estimates update directions from interaction rewards, allocates rank to their spectral modes, and carries the selected parameter states into subsequent episodes. We first define the deployment problem, then derive its exact per-round solution and statistical guarantee, describe the interaction-driven update, and present the deployment algorithm.
 
 ![Joint adaptation in five-player AvalonBench](figures/figure1_overview.png)
 
@@ -59,37 +59,75 @@ pip install -e '.[models]'
 
 ### Data Preparation
 
-Download the benchmark sources and install the environment dependencies:
+Download the benchmark sources:
 
 ```bash
 python -m joint_ttopt fetch --output external
 ```
 
+Install the corresponding environment dependencies using their released instructions.
 The paper evaluates MultiAgentBench, GAMA-Bench, SOTOPIA, Decrypto, and AvalonBench.
 Configure the benchmark in `data/environment.yaml`. Prepare the action head,
 reward normalization, and calibration inputs with the commands in
 [input preparation](docs/artifacts.md). The deployment command below uses the
 paper settings from `configs/paper.yaml`.
 
+Select one of the three backbones for preparation and deployment:
+
+```bash
+MODEL=Qwen3-8B
+# MODEL=Llama-3.1-8B
+# MODEL=gpt-oss-20b
+```
+
 ## Training
+
+Collect entry-training trajectories and train the frozen action head:
+
+```bash
+python -m joint_ttopt collect-entry --model "${MODEL}" \
+  --environment data/entry_environment.yaml --renderer data/renderer.json \
+  --fallback-spans data/benchmark_return_spans.json --output data/entry/${MODEL}
+
+python -m joint_ttopt train-head --model "${MODEL}" \
+  --training-data data/entry/${MODEL}/action_labels.jsonl \
+  --renderer data/renderer.json --output checkpoints/${MODEL}/action_head.npz
+```
+
+Record calibration probes using the prepared gradient bounds:
+
+```bash
+python -m joint_ttopt record-probes --environment data/environment.yaml \
+  --model "${MODEL}" --head checkpoints/${MODEL}/action_head.npz \
+  --normalization data/entry/${MODEL}/normalization.json \
+  --bounds data/gradient_bounds.json --output calibration/${MODEL}/probes
+
+python -m joint_ttopt calibrate --manifest calibration/${MODEL}/probes/manifest.json \
+  --output calibration/${MODEL}/reference.json
+```
 
 Run joint test-time training in the configured environment:
 
 ```bash
 python -m joint_ttopt deploy --environment data/environment.yaml \
-  --model Qwen3-8B --head checkpoints/action_head.npz \
-  --normalization data/entry/normalization.json \
-  --calibration calibration/reference.json \
-  --calibration-bounds data/gradient_bounds.json --output results/joint
+  --model "${MODEL}" --head checkpoints/${MODEL}/action_head.npz \
+  --normalization data/entry/${MODEL}/normalization.json \
+  --calibration calibration/${MODEL}/reference.json \
+  --calibration-bounds data/gradient_bounds.json --output results/${MODEL}/joint
 ```
+
+Add `--resume results/${MODEL}/joint/state.npz` to continue a saved deployment.
+Entry collection and probe recording continue when their commands use the same
+output directory. Action-head recovery is described in the
+[preparation guide](docs/artifacts.md#resuming-training).
 
 ## Evaluation
 
 Export the environment's native metric after the 50-episode deployment:
 
 ```bash
-python -m joint_ttopt metrics results/joint --horizons 50 \
-  --metric METRIC --output results/metrics.jsonl
+python -m joint_ttopt metrics results/${MODEL}/joint --horizons 50 \
+  --metric METRIC --output results/${MODEL}/metrics.jsonl
 ```
 
 Set `METRIC` to the native metric returned by the benchmark evaluator.

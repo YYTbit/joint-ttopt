@@ -19,6 +19,26 @@ def read_config(path):
     return value
 
 
+def entry_model(args):
+    if args.model:
+        profile = read_config(args.config)["models"][args.model]
+        return profile["checkpoint"], args.revision or profile.get("revision")
+    return args.checkpoint, args.revision
+
+
+def entry_scales(path, policy):
+    normalization = json.loads(Path(path).read_text())
+    if (normalization.get("entry_label_sha256") is not None
+            and normalization["entry_label_sha256"] != policy.metadata.get("training_data_sha256")):
+        raise ValueError("Reward normalization and action head use different entry trajectories")
+    teacher = normalization.get("teacher", {})
+    for name in ("checkpoint", "revision"):
+        if teacher.get(name) is not None and teacher[name] != policy.metadata.get(name):
+            raise ValueError("Reward normalization uses a different backbone")
+    return {int(agent): RewardScale.from_interval(value["lower"], value["upper"], value.get("fallback_span"))
+            for agent, value in normalization["agents"].items()}
+
+
 def calibrate_command(args):
     from .probes import load_probe_calibration
     result = load_probe_calibration(args.manifest, read_config(args.config).get("calibration", {}))
@@ -40,11 +60,12 @@ def probes_command(args):
                                                     config["model_execution"]["dtype"],
                                                     temperature=config["model_execution"]["action_temperature"],
                                                     max_context=config["model_execution"]["context_tokens"])
-        normalization = json.loads(Path(args.normalization).read_text())
-        scales = {int(agent): RewardScale.from_interval(value["lower"], value["upper"], value.get("fallback_span"))
-                  for agent, value in normalization["agents"].items()}
+        scales = entry_scales(args.normalization, policy)
         settings = dict(config["deployment"], **config["calibration"],
-                        regularization=config["optimization"]["regularization"])
+                        regularization=config["optimization"]["regularization"],
+                        task_id=configuration.get("task_id"), partner_schedule_id=configuration.get("partner_schedule_id"),
+                        environment_configuration_sha256=file_digest(args.environment),
+                        normalization_sha256=file_digest(args.normalization))
         result = record_probes(environment, policy, scales, settings,
                                json.loads(Path(args.bounds).read_text()), args.output, args.seed)
         print(json.dumps({"paired_probes": len(result["probes"])}))
@@ -68,9 +89,7 @@ def deploy_command(args):
                                                     max_context=config["model_execution"]["context_tokens"])
         if len(policy.blocks) != profile["adapted_blocks"]:
             raise ValueError("Backbone block count differs from the paper configuration")
-        normalization = json.loads(Path(args.normalization).read_text())
-        scales = {int(agent): RewardScale.from_interval(value["lower"], value["upper"], value.get("fallback_span"))
-                  for agent, value in normalization["agents"].items()}
+        scales = entry_scales(args.normalization, policy)
         settings = dict(config["optimization"], **config["deployment"],
                         calibration=config["calibration"],
                         task_id=environment_config["task_id"], benchmark=environment.name,
@@ -96,8 +115,15 @@ def deploy_command(args):
             raise ValueError("Deployment task overlaps the action-head entry-training split")
         if settings["partner_schedule_id"] in policy.metadata.get("training_partner_schedules", []):
             raise ValueError("Deployment partner schedule overlaps the entry-training split")
-        result = run_deployment(environment, policy, load_calibration(args.calibration),
-                                file_digest(args.calibration), scales, settings, args.output,
+        from .accounting import derive_seed
+        seeds = {derive_seed(args.seed, 0, 0, position) for position in range(settings["episodes"])}
+        if seeds.intersection(policy.metadata.get("training_seeds", [])):
+            raise ValueError("Deployment seeds overlap the entry-training split")
+        if args.method != "frozen" and args.calibration is None:
+            raise ValueError("Parameter updates require --calibration")
+        calibration = load_calibration(args.calibration) if args.calibration else None
+        result = run_deployment(environment, policy, calibration,
+                                file_digest(args.calibration) if args.calibration else None, scales, settings, args.output,
                                 args.seed, args.method, args.resume)
         print(json.dumps({"completed_episodes": len(result), "method": args.method}))
     finally:
@@ -108,11 +134,13 @@ def fetch_command(args):
     entries = json.loads(Path(args.sources).read_text())
     root = Path(args.output)
     root.mkdir(parents=True, exist_ok=True)
-    for name in args.names or sorted(entries):
+    for name in args.names or sorted(set(entries) - {"TEMPO"}):
         item = entries[name]
         destination = root / item["directory"]
         if not destination.exists():
             subprocess.run(["git", "clone", "--filter=blob:none", "--no-checkout", item["repository"], str(destination)], check=True)
+        elif subprocess.check_output(["git", "status", "--porcelain"], cwd=destination, text=True).strip():
+            raise ValueError("The benchmark checkout has local changes")
         subprocess.run(["git", "fetch", "origin", item["revision"]], cwd=destination, check=True)
         subprocess.run(["git", "checkout", "--detach", item["revision"]], cwd=destination, check=True)
         revision = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=destination, text=True).strip()
@@ -137,7 +165,7 @@ def external_command(args):
     destination.write_text("".join(json.dumps(row, allow_nan=False) + "\n" for row in rows))
 
 
-def main(argv=None):
+def parser():
     parser = argparse.ArgumentParser(description="Joint Test-Time Optimization from Multi-Agent Interaction of Large Language Models")
     commands = parser.add_subparsers(dest="operation", required=True)
     calibration = commands.add_parser("calibrate")
@@ -161,7 +189,7 @@ def main(argv=None):
     deployment.add_argument("--environment", required=True)
     deployment.add_argument("--model", choices=["Qwen3-8B", "Llama-3.1-8B", "gpt-oss-20b"], required=True)
     deployment.add_argument("--head", required=True)
-    deployment.add_argument("--calibration", required=True)
+    deployment.add_argument("--calibration")
     deployment.add_argument("--calibration-bounds")
     deployment.add_argument("--normalization", required=True)
     deployment.add_argument("--method", choices=["joint", "frozen", "equal_share", "rank_matched", "reset", "shared_feedback"], default="joint")
@@ -189,10 +217,7 @@ def main(argv=None):
         from .environments import load_environment, serve
         configuration = read_config(args.environment)
         environment = load_environment(configuration["factory"], configuration.get("options", {}))
-        try:
-            serve(environment, sys.stdin, sys.stdout)
-        finally:
-            environment.close()
+        serve(environment, sys.stdin, sys.stdout)
     service.set_defaults(function=serve_command)
     metrics = commands.add_parser("metrics")
     metrics.add_argument("runs", nargs="+")
@@ -228,7 +253,10 @@ def main(argv=None):
         print(json.dumps(result, indent=2))
     summary.set_defaults(function=summarize_command)
     head = commands.add_parser("train-head")
-    head.add_argument("--checkpoint", required=True)
+    head.add_argument("--config", default="configs/paper.yaml")
+    selection = head.add_mutually_exclusive_group(required=True)
+    selection.add_argument("--checkpoint")
+    selection.add_argument("--model", choices=["Qwen3-8B", "Llama-3.1-8B", "gpt-oss-20b"])
     head.add_argument("--revision")
     head.add_argument("--training-data", required=True)
     head.add_argument("--renderer", required=True)
@@ -237,33 +265,43 @@ def main(argv=None):
     head.add_argument("--epochs", type=int, default=5)
     head.add_argument("--learning-rate", type=float, default=0.0003)
     head.add_argument("--device", default="cpu")
+    head.add_argument("--resume")
+    head.add_argument("--checkpoint-every", type=int, default=100)
     def head_command(args):
         from .heads import train_action_head
-        train_action_head(args.checkpoint, args.revision, args.training_data, args.output,
+        checkpoint, revision = entry_model(args)
+        train_action_head(checkpoint, revision, args.training_data, args.output,
                           json.loads(Path(args.renderer).read_text()), args.seed,
-                          args.epochs, args.learning_rate, args.device)
+                          args.epochs, args.learning_rate, args.device, args.resume, args.checkpoint_every)
     head.set_defaults(function=head_command)
     entry = commands.add_parser("collect-entry")
     entry.add_argument("--environment", required=True)
-    entry.add_argument("--checkpoint", required=True)
+    entry.add_argument("--config", default="configs/paper.yaml")
+    selection = entry.add_mutually_exclusive_group(required=True)
+    selection.add_argument("--checkpoint")
+    selection.add_argument("--model", choices=["Qwen3-8B", "Llama-3.1-8B", "gpt-oss-20b"])
     entry.add_argument("--revision")
     entry.add_argument("--renderer", required=True)
     entry.add_argument("--episodes", type=int, default=100)
     entry.add_argument("--seed", type=int, default=0)
     entry.add_argument("--fallback-spans", required=True)
     entry.add_argument("--device-map", default="auto")
+    entry.add_argument("--max-new-tokens", type=int, default=1024)
     entry.add_argument("--output", required=True)
     def entry_command(args):
         from transformers import AutoTokenizer
         from .environments import load_environment
         from .preparation import GenerativeActionTeacher, collect_entry
         from .renderer import ObservationRenderer
+        from .model_io import renderer_settings
         specification = read_config(args.environment)
         if specification.get("split") != "entry_training" or args.episodes < 1:
             raise ValueError("Collection requires an entry-training task and a positive episode count")
-        tokenizer = AutoTokenizer.from_pretrained(args.checkpoint, revision=args.revision)
-        renderer = ObservationRenderer(tokenizer, **json.loads(Path(args.renderer).read_text()))
-        teacher = GenerativeActionTeacher(args.checkpoint, args.revision, args.device_map)
+        checkpoint, revision = entry_model(args)
+        teacher = GenerativeActionTeacher(checkpoint, revision, args.device_map, max_new_tokens=args.max_new_tokens)
+        tokenizer = AutoTokenizer.from_pretrained(checkpoint, revision=teacher.metadata["revision"])
+        renderer = ObservationRenderer(tokenizer, **renderer_settings(json.loads(Path(args.renderer).read_text()),
+                                                                      teacher.metadata["model_type"]))
         environment = load_environment(specification["factory"], specification.get("options", {}))
         try:
             labels, episodes = collect_entry(environment, teacher, renderer, specification, args.output,
@@ -280,5 +318,9 @@ def main(argv=None):
         from .preparation import declared_envelopes
         write_json(args.output, declared_envelopes(json.loads(Path(args.specification).read_text())))
     envelopes.set_defaults(function=envelopes_command)
-    args = parser.parse_args(argv)
+    return parser
+
+
+def main(argv=None):
+    args = parser().parse_args(argv)
     args.function(args)
