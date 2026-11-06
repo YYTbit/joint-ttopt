@@ -21,35 +21,62 @@ episodes, supporting persistent joint adaptation.
 
 ## Algorithm Flow
 
-To implement each shared-rank decision, Algorithm 1 combines interaction sampling, gradient estimation, step selection, spectral allocation, and joint commitment.
+To address this problem, we introduce *joint test-time optimization from multi-agent interaction*. Each agent adapts a frozen LLM through persistent low-rank weights. We formulate their simultaneous update as a proximal optimization problem under a shared rank budget and per-agent caps. Completing the square reduces the problem to joint projection, and singular decomposition assigns a marginal value to each retained direction. The capacity constraints form a laminar family, enabling an exact greedy allocation. Thus, the same optimization step determines both the parameter update and its distribution across participating agents.
 
 ![Joint adaptation in five-player AvalonBench](figures/figure1_overview.png)
 
 **Figure 1.** Joint adaptation in five-player AvalonBench (schematic). (a) Context-dependent experience reuse. (b) Equal per-agent rank budgets. (c) Changing learning signals. (d) Shared spectral allocation, interaction-sensitive steps, and persistent weights. Optimality holds for the per-round proximal objective. Tile heights indicate update values; solid tiles mark retained directions, totaling ten in both allocations. Agent colors identify players, whose roles remain private.
 
-**Algorithm 1. Shared-capacity multi-agent test-time training**
+**Persistent parameter states.**
 
-**Require:** Policies $\boldsymbol\pi_{\boldsymbol\theta_0}$, game $\Gamma$, rounds $K$, agents $\mathcal U$, blocks $\{\mathcal B_i\}$
+To retain reward-driven adaptation, each agent trains low-rank updates on a frozen pretrained LLM. For adapted linear block $b\in\mathcal B_i$,
 
-**Require:** Budgets $R,\{r_i\}$, samples $\{n_k\}$, normalization and calibration records
+$$
+W_{i,b,k}=W_{i,b,0}+Z_{i,b,k},\qquad Z_{i,b,0}=0,
+\tag{2}
+$$
 
-1. $Z_{i,b,0}\gets0$, $\widehat s_{-1}\gets0$
-2. **for** $k=0,\ldots,K-1$ **do**
-3. Sample joint trajectories under policy version $k$
-4. Estimate $\widehat G_k$ and confidence radii
-5. Set $\widehat s_{k-1},\eta_k,\lambda_k$ from observed and calibrated scales
-6. Form all $\widehat Y_{i,b,k}$ and spectral mode values
-7. Greedily allocate $\{q_{i,b,k}\}$ under $R,\{r_i\}$
-8. Form $Z_{i,b,k}^{+}\gets\Pi_{q_{i,b,k}}(\widehat Y_{i,b,k})$
-9. Validate factor values, budgets, and policy versions
-10. **if** validation succeeds **then**
-11. Commit $Z_{k+1}\gets Z_k^+$ jointly
-12. **else**
-13. Retain $Z_{k+1}\gets Z_k$
-14. **end if**
-15. Record ranks, spectral margins, and the joint gap bound
-16. **end for**
-17. **return** $\boldsymbol\pi_{\boldsymbol\theta_K}$
+where $\mathcal B_i$ is the adapted-block set, $W_{i,b,0}\in\mathbb R^{m_{i,b}\times p_{i,b}}$ is its pretrained weight, and $Z_{i,b,k}$ is the persistent update. Write $Z_i$ for agent $i$'s blocks and $Z=(Z_1,\ldots,Z_n)$ for their joint state.
+
+We use $\|Z\|_{\mathsf F}^2=\sum_{i,b}\|Z_{i,b}\|_F^2$ across the adapted blocks.
+
+**Exact spectral allocation.**
+
+The agent groups are disjoint and nested within the shared budget, giving a truncated partition matroid. Greedy selection maximizes additive value on this family. Within each block, decreasing singular values and index-based tie breaking ensure that selected modes form a prefix, which corresponds to a feasible truncated SVD. Thus, the optimum over mode subsets also solves the rank-allocation problem.
+
+**Joint secant step.**
+
+To respond to changes in the learning signal after completed updates, set, for $k\geq1$,
+
+$$
+\begin{aligned}
+\Delta_{k-1}&=Z_k-Z_{k-1},\qquad
+\delta_{k-1}=\widehat G_k-\widehat G_{k-1},\\
+\widehat s_{k-1}&=\|\delta_{k-1}\|_{\mathsf F}/\|\Delta_{k-1}\|_{\mathsf F},
+\end{aligned}
+\tag{15}
+$$
+
+where $\widehat G_k$ stacks the empirical gradients and $\widehat s_{k-1}$ measures gradient change per unit of joint parameter movement. Initialize $\widehat s_{-1}=0$, and set the ratio to zero when $\|\Delta_{k-1}\|_{\mathsf F}\leq\nu_\Delta$, where $\nu_\Delta\geq0$ is the declared numerical threshold. To calibrate the local scale, paired-seed probes evaluate gradients at $Z^{\mathrm{cal}}\pm h_jv_j$, where $Z^{\mathrm{cal}}$ is the calibration state, $h_j>0$ the radius, and $\|v_j\|_{\mathsf F}=1$. Their central difference is $\widehat\ell_j=\|\widehat G(Z^{\mathrm{cal}}+h_jv_j) -\widehat G(Z^{\mathrm{cal}}-h_jv_j)\|_{\mathsf F}/(2h_j)$. We set $\widehat L_k=\max\{L_{\min},\max_j\widehat\ell_j\}$ with positive floor $L_{\min}$; $\epsilon_{s,k}\geq0$ is the calibrated upper quantile of repeated secant residuals.
+
+Both scales precede the current proposal. Given step margin $\delta_s\in(0,1)$, use
+
+$$
+\begin{aligned}
+\overline L_k&=\max\{\widehat L_k,\widehat s_{k-1}+\epsilon_{s,k}\},\\
+\eta_k&=\frac{1-\delta_s}{\overline L_k},\qquad
+\lambda_k=\eta_k^{-1}-\overline L_k.
+\end{aligned}
+\tag{16}
+$$
+
+The step decreases as observed gradient variation grows.
+
+**Persistent spectral update.**
+
+Given a step $\eta_k>0$, each block forms $\widehat Y_{i,b,k}=Z_{i,b,k}+\eta_k\widehat G_{i,b,k}$.
+
+Let $q_{i,b,k}$ denote the selected block rank. The selected ranks give $Z_{i,b,k+1}=\Pi_{q_{i,b,k}}(\widehat Y_{i,b,k})$, where $\Pi_q$ retains the leading $q$ singular directions. A zero-rank assignment releases the block's previous capacity. The committed state enters the next episode through Equation (2).
 
 ![Algorithm 1](figures/algorithm.png)
 
