@@ -27,6 +27,8 @@ To address this problem, we introduce *joint test-time optimization from multi-a
 
 **Figure 1.** Joint adaptation in five-player AvalonBench (schematic). (a) Context-dependent experience reuse. (b) Equal per-agent rank budgets. (c) Changing learning signals. (d) Shared spectral allocation, interaction-sensitive steps, and persistent weights. Optimality holds for the per-round proximal objective. Tile heights indicate update values; solid tiles mark retained directions, totaling ten in both allocations. Agent colors identify players, whose roles remain private.
 
+The algorithm flow includes:
+
 **Persistent parameter states.**
 
 To retain reward-driven adaptation, each agent trains low-rank updates on a frozen pretrained LLM. For adapted linear block $`b\in\mathcal B_i`$,
@@ -79,6 +81,8 @@ The step decreases as observed gradient variation grows.
 Given a step $`\eta_k>0`$, each block forms $`\widehat Y_{i,b,k}=Z_{i,b,k}+\eta_k\widehat G_{i,b,k}`$.
 
 Let $`q_{i,b,k}`$ denote the selected block rank. The selected ranks give $`Z_{i,b,k+1}=\Pi_{q_{i,b,k}}(\widehat Y_{i,b,k})`$, where $`\Pi_q`$ retains the leading $`q`$ singular directions. A zero-rank assignment releases the block's previous capacity. The committed state enters the next episode through Equation (2).
+
+The pseudocode for joint test-time optimization is as follows:
 
 ![Algorithm 1](figures/algorithm.png)
 
