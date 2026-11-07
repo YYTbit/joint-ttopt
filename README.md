@@ -120,9 +120,9 @@ python -m joint_ttopt fetch --output external
 
 Install the corresponding environment dependencies using their released instructions.
 The paper evaluates MultiAgentBench, GAMA-Bench, SOTOPIA, Decrypto, and AvalonBench.
-Configure the benchmark in `data/environment.yaml`. Prepare the action head,
-reward normalization, and calibration inputs with the commands in
-[input preparation](docs/artifacts.md). The deployment command below uses the
+Prepare the benchmark environment, action head, reward normalization, and
+calibration inputs following [input preparation](docs/artifacts.md).
+The deployment command below uses the
 paper settings from `configs/paper.yaml`.
 
 Select one of the three backbones for preparation and deployment:

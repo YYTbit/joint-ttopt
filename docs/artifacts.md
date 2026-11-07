@@ -49,7 +49,10 @@ An environment can declare `action_count` for its complete action vocabulary, in
 
 The configuration declares `factory` in `module:function` form, constructor `options`, `task_id`, and `partner_schedule_id`. Entry collection additionally declares `split: entry_training`; use separate task, partner-schedule, and seed identifiers for deployment.
 
-Configure the benchmark factory in `data/environment.yaml` before the preparation and deployment commands above.
+Create `data/environment.yaml` with these fields for deployment. Create
+`data/entry_environment.yaml` with the entry-training identifiers and split for
+entry collection. The `factory` value names the benchmark adapter's importable
+constructor; `options` supplies its keyword arguments.
 
 `JsonEnvironment` connects a worker in a separate environment. Set its factory to `joint_ttopt.environments:JsonEnvironment` and pass a `command` argument list through `options`. Each request has `operation` equal to `describe`, `reset`, or `step`. `describe` returns `agents`, `name`, `version`, and optional `data_kind`; `reset` receives `seed`; `step` receives `actions`. The latter two operations return serialized `Frame` fields. `serve` provides the corresponding worker loop. Diagnostic output goes to stderr.
 
